@@ -63,10 +63,20 @@ Open a new terminal window:
 ```bash
 cd client
 npm install
-npm start
+npm run dev
 ```
 
-The React development server will start on http://localhost:3000
+The Vite development server will start on http://localhost:3000
+
+### Quick Start (Both Servers)
+
+Alternatively, use the convenience script to start both servers at once:
+
+```bash
+./start-dev.sh
+```
+
+This will start both backend and frontend servers simultaneously.
 
 ## Usage
 
@@ -136,6 +146,7 @@ The application includes mock laboratory results for demonstration:
 
 ### Frontend
 - **React**: UI framework
+- **Vite**: Modern build tool and development server
 - **Tailwind CSS**: Utility-first CSS framework
 - **Fetch API**: HTTP client for API calls
 
@@ -158,7 +169,7 @@ The application includes mock laboratory results for demonstration:
 2. Start the frontend development server:
    ```bash
    cd client
-   npm start
+   npm run dev
    ```
 
 ### Environment Variables

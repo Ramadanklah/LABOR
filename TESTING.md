@@ -16,7 +16,7 @@ Before testing, make sure both servers are running:
 2. **Frontend Server** (Port 3000)
    ```bash
    cd client
-   npm start
+   npm run dev
    ```
    This should automatically open http://localhost:3000 in your browser
 
