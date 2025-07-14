@@ -74,8 +74,14 @@ The Vite development server will start on http://localhost:3000
 
 Alternatively, use the convenience script to start both servers at once:
 
+**Linux/Mac:**
 ```bash
 ./start-dev.sh
+```
+
+**Windows:**
+```batch
+start-dev.bat
 ```
 
 This will start both backend and frontend servers simultaneously.
@@ -249,12 +255,39 @@ PORT=5000
 2. **Connection Refused**: Check that the backend server is running on port 5000
 3. **Tailwind Styles Not Loading**: Verify Tailwind CSS is properly installed and configured
 4. **PostCSS/Webpack Errors**: See `QUICK_FIX_GUIDE.md` for resolved compatibility issues
+5. **"vite" command not found (Windows)**: This is already fixed - the package.json uses `npx vite` for better compatibility
 
 ### Quick Fix for Common Errors
 
 If you encounter Tailwind CSS PostCSS errors, React hooks warnings, or webpack compilation issues, see the comprehensive fix guide:
 
 📋 **[QUICK_FIX_GUIDE.md](./QUICK_FIX_GUIDE.md)** - Solutions for all compatibility issues
+
+### Windows-Specific Issues
+
+If you encounter the error `Der Befehl "vite" ist entweder falsch geschrieben oder` (The command "vite" is either misspelled or not found):
+
+**Solution**: The package.json has been updated to use `npx vite` instead of just `vite`. If you still have issues:
+
+1. **Delete and reinstall dependencies**:
+   ```batch
+   cd client
+   rmdir /s node_modules
+   del package-lock.json
+   npm install
+   npm start
+   ```
+
+2. **Use the Windows batch script**:
+   ```batch
+   start-dev.bat
+   ```
+
+3. **Run commands directly with npx**:
+   ```batch
+   cd client
+   npx vite
+   ```
 
 ### Support
 
