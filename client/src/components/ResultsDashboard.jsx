@@ -8,6 +8,7 @@ function ResultsDashboard({ token, onLogout }) {
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [error, setError] = useState('');
+  const [downloading, setDownloading] = useState(false);
 
   const fetchResults = useCallback(async () => {
     try {
@@ -76,6 +77,57 @@ function ResultsDashboard({ token, onLogout }) {
       default:
         return 'bg-gray-100 text-gray-800';
     }
+  };
+
+  // Download functions
+  const downloadFile = async (url, filename) => {
+    try {
+      setDownloading(true);
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Download failed: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error('Download error:', error);
+      setError(`Download failed: ${error.message}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const downloadAllAsLDT = () => {
+    const filename = `lab_results_${new Date().toISOString().slice(0, 10)}.ldt`;
+    downloadFile('/api/download/ldt', filename);
+  };
+
+  const downloadAllAsPDF = () => {
+    const filename = `lab_results_${new Date().toISOString().slice(0, 10)}.pdf`;
+    downloadFile('/api/download/pdf', filename);
+  };
+
+  const downloadResultAsLDT = (resultId) => {
+    const filename = `result_${resultId}_${new Date().toISOString().slice(0, 10)}.ldt`;
+    downloadFile(`/api/download/ldt/${resultId}`, filename);
+  };
+
+  const downloadResultAsPDF = (resultId) => {
+    const filename = `result_${resultId}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    downloadFile(`/api/download/pdf/${resultId}`, filename);
   };
 
   if (loading) {
@@ -177,6 +229,41 @@ function ResultsDashboard({ token, onLogout }) {
             </div>
           </div>
 
+          {/* Download Section */}
+          <div className="bg-white shadow rounded-lg p-6 mb-6">
+            <h2 className="text-lg font-medium text-gray-900 mb-4">Download Results</h2>
+            <div className="flex flex-wrap gap-4">
+              <button
+                onClick={downloadAllAsLDT}
+                disabled={downloading || filteredResults.length === 0}
+                className="bg-green-500 hover:bg-green-700 disabled:bg-gray-300 text-white font-bold py-2 px-4 rounded inline-flex items-center"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                {downloading ? 'Downloading...' : 'Download as LDT'}
+              </button>
+              
+              <button
+                onClick={downloadAllAsPDF}
+                disabled={downloading || filteredResults.length === 0}
+                className="bg-red-500 hover:bg-red-700 disabled:bg-gray-300 text-white font-bold py-2 px-4 rounded inline-flex items-center"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                {downloading ? 'Downloading...' : 'Download as PDF'}
+              </button>
+
+              <div className="text-sm text-gray-600 flex items-center ml-4">
+                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Downloads include {filteredResults.length} result{filteredResults.length !== 1 ? 's' : ''}
+              </div>
+            </div>
+          </div>
+
           {/* Results Table */}
           <div className="bg-white shadow overflow-hidden sm:rounded-md">
             <div className="px-4 py-5 sm:p-6">
@@ -199,31 +286,34 @@ function ResultsDashboard({ token, onLogout }) {
               ) : (
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Result ID
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Date
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Type
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Patient
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Status
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          BSNR
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          LANR
-                        </th>
-                      </tr>
-                    </thead>
+                                         <thead className="bg-gray-50">
+                       <tr>
+                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                           Result ID
+                         </th>
+                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                           Date
+                         </th>
+                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                           Type
+                         </th>
+                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                           Patient
+                         </th>
+                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                           Status
+                         </th>
+                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                           BSNR
+                         </th>
+                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                           LANR
+                         </th>
+                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                           Actions
+                         </th>
+                       </tr>
+                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {filteredResults.map((result) => (
                         <tr key={result.id} className="hover:bg-gray-50">
@@ -247,10 +337,36 @@ function ResultsDashboard({ token, onLogout }) {
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                             {result.bsnr}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {result.lanr}
-                          </td>
-                        </tr>
+                                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                             {result.lanr}
+                           </td>
+                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                             <div className="flex space-x-2">
+                               <button
+                                 onClick={() => downloadResultAsLDT(result.id)}
+                                 disabled={downloading}
+                                 className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white px-2 py-1 rounded text-xs inline-flex items-center"
+                                 title="Download as LDT"
+                               >
+                                 <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3" />
+                                 </svg>
+                                 LDT
+                               </button>
+                               <button
+                                 onClick={() => downloadResultAsPDF(result.id)}
+                                 disabled={downloading}
+                                 className="bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white px-2 py-1 rounded text-xs inline-flex items-center"
+                                 title="Download as PDF"
+                               >
+                                 <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3" />
+                                 </svg>
+                                 PDF
+                               </button>
+                             </div>
+                           </td>
+                         </tr>
                       ))}
                     </tbody>
                   </table>

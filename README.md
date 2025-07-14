@@ -7,6 +7,8 @@ A full-stack web application for managing and viewing laboratory results, built 
 - **Secure Authentication**: Login with BSNR, LANR, and password
 - **Results Dashboard**: View laboratory results in an organized table format
 - **Search & Filter**: Search by patient name or result ID, filter by status and type
+- **Download Formats**: Export results as LDT (German standard) or PDF reports
+- **Individual & Bulk Downloads**: Download single results or all filtered results
 - **Responsive Design**: Modern UI built with Tailwind CSS
 - **Mirth Connect Integration**: Webhook endpoint for receiving lab data
 - **Real-time Updates**: Refresh functionality to get latest results
@@ -100,6 +102,8 @@ For testing purposes, use these demo credentials:
    - Search functionality for patient names and result IDs
    - Filter by result status (Final, Preliminary)
    - Filter by result type (Blood Count, Urinalysis, Microbiology)
+   - **Download all results** as LDT or PDF format
+   - **Individual result downloads** for each table row
    - Refresh button to fetch latest data
    - Logout functionality
 
@@ -122,6 +126,26 @@ For testing purposes, use these demo credentials:
 - **POST** `/api/mirth-webhook`
   - Receives laboratory data from Mirth Connect
   - Processes and stores data in the database
+
+### Download Endpoints
+
+- **GET** `/api/download/ldt`
+  - Download all results as LDT format (German laboratory standard)
+  - Response: Binary file download
+
+- **GET** `/api/download/pdf`
+  - Download all results as PDF report
+  - Response: Binary file download
+
+- **GET** `/api/download/ldt/:resultId`
+  - Download specific result as LDT format
+  - Response: Binary file download
+
+- **GET** `/api/download/pdf/:resultId`
+  - Download specific result as PDF report
+  - Response: Binary file download
+
+For detailed API documentation, see: **[API_DOWNLOAD_GUIDE.md](./API_DOWNLOAD_GUIDE.md)**
 
 ## Mock Data
 
@@ -155,6 +179,8 @@ The application includes mock laboratory results for demonstration:
 - **Express.js**: Web framework
 - **CORS**: Cross-origin resource sharing
 - **dotenv**: Environment variable management
+- **PDFKit**: PDF generation library
+- **LDT Generator**: Custom German laboratory data format generator
 
 ## Development
 
