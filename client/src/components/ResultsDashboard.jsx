@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 function ResultsDashboard({ token, onLogout }) {
   const [results, setResults] = useState([]);
@@ -9,15 +9,7 @@ function ResultsDashboard({ token, onLogout }) {
   const [typeFilter, setTypeFilter] = useState('');
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    fetchResults();
-  }, []);
-
-  useEffect(() => {
-    filterResults();
-  }, [results, searchTerm, statusFilter, typeFilter]);
-
-  const fetchResults = async () => {
+  const fetchResults = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch('/api/results', {
@@ -40,9 +32,9 @@ function ResultsDashboard({ token, onLogout }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
-  const filterResults = () => {
+  const filterResults = useCallback(() => {
     let filtered = results;
 
     if (searchTerm) {
@@ -61,7 +53,15 @@ function ResultsDashboard({ token, onLogout }) {
     }
 
     setFilteredResults(filtered);
-  };
+  }, [results, searchTerm, statusFilter, typeFilter]);
+
+  useEffect(() => {
+    fetchResults();
+  }, [fetchResults]);
+
+  useEffect(() => {
+    filterResults();
+  }, [filterResults]);
 
   const getUniqueValues = (key) => {
     return [...new Set(results.map(result => result[key]))];

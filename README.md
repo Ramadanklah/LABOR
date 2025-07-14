@@ -219,9 +219,16 @@ PORT=5000
 
 ### Common Issues
 
-1. **CORS Errors**: Ensure the proxy is correctly configured in `client/package.json`
+1. **CORS Errors**: Ensure the proxy is correctly configured in `vite.config.js`
 2. **Connection Refused**: Check that the backend server is running on port 5000
 3. **Tailwind Styles Not Loading**: Verify Tailwind CSS is properly installed and configured
+4. **PostCSS/Webpack Errors**: See `QUICK_FIX_GUIDE.md` for resolved compatibility issues
+
+### Quick Fix for Common Errors
+
+If you encounter Tailwind CSS PostCSS errors, React hooks warnings, or webpack compilation issues, see the comprehensive fix guide:
+
+📋 **[QUICK_FIX_GUIDE.md](./QUICK_FIX_GUIDE.md)** - Solutions for all compatibility issues
 
 ### Support
 
