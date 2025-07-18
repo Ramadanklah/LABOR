@@ -1,10 +1,20 @@
 {
   "scripts": {
-    "prisma:generate": "PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 npx prisma generate"
+    "prisma:generate": "PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 npx prisma generate",
+    "dev": "node server.js",
+    "start": "node server.js",
+    "db:migrate": "npx prisma migrate dev",
+    "db:seed": "node prisma/seed.js"
   },
   "dependencies": {
     "@prisma/client": "^5.16.2",
     "@prisma/extension-accelerate": "^2.0.2",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
     "prisma": "^5.16.2"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   }
 }

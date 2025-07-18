@@ -11,10 +11,102 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Add your data models here
-// Example:
-// model User {
-//   id    Int     @id @default(autoincrement())
-//   email String  @unique
-//   name  String?
-// }
+// Represents a doctor or lab client
+model User {
+  id       Int    @id @default(autoincrement())
+  bsnr     String @unique // Betriebsstättennummer
+  lanr     String?        // Lebenslange Arztnummer
+  name     String
+  password String
+  email    String? @unique
+  role     String @default("doctor") // "doctor", "lab", "admin"
+  
+  sentOrders     LabOrder[] @relation("SentOrders")
+  receivedOrders LabOrder[] @relation("ReceivedOrders")
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("users")
+}
+
+// Patient data (DSK 8310/8320 etc)
+model Patient {
+  id          Int      @id @default(autoincrement())
+  insuranceNo String?  // Versichertennummer
+  lastName    String
+  firstName   String
+  birthDate   DateTime
+  gender      String   // "M", "W", "D"
+  address     String?
+  zipCode     String?
+  city        String?
+  phone       String?
+  
+  labOrders LabOrder[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("patients")
+}
+
+// Auftrag / Order (DSK 8210/8220)
+model LabOrder {
+  id          Int      @id @default(autoincrement())
+  orderNumber String   @unique
+  orderDate   DateTime
+  senderId    Int      // FK to User/lab
+  receiverId  Int      // FK to User/doctor
+  patientId   Int
+  status      String   @default("pending") // "pending", "processing", "final", "preliminary"
+  comment     String?
+  priority    String   @default("normal") // "urgent", "normal", "low"
+  
+  sender     User        @relation("SentOrders", fields: [senderId], references: [id])
+  receiver   User        @relation("ReceivedOrders", fields: [receiverId], references: [id])
+  patient    Patient     @relation(fields: [patientId], references: [id])
+  labResults LabResult[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("lab_orders")
+}
+
+// Einzelbefund / Test result (DSK 8410-8470)
+model LabResult {
+  id            Int      @id @default(autoincrement())
+  labOrderId    Int
+  parameterCode String   // e.g. LOINC/DSK code
+  parameterName String
+  resultValue   String   // values as text (string/decimal/date), can cast in code
+  unit          String?  // e.g. mg/dL
+  referenceMin  String?
+  referenceMax  String?
+  resultDate    DateTime
+  abnormalFlag  String?  // e.g. 'H', 'L', 'N'
+  comment       String?
+  method        String?  // Test method
+  
+  labOrder LabOrder @relation(fields: [labOrderId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("lab_results")
+}
+
+// API Keys for Mirth Connect integration
+model ApiKey {
+  id          Int      @id @default(autoincrement())
+  name        String
+  key         String   @unique
+  isActive    Boolean  @default(true)
+  permissions String[] // ["read", "write", "admin"]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("api_keys")
+}
