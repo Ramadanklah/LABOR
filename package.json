@@ -3,8 +3,8 @@
     "prisma:generate": "PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 npx prisma generate"
   },
   "dependencies": {
-    "@prisma/client": "^6.14.1",
+    "@prisma/client": "^5.16.2",
     "@prisma/extension-accelerate": "^2.0.2",
-    "prisma": "^6.14.1"
+    "prisma": "^5.16.2"
   }
 }
