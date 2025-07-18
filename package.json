@@ -1,4 +1,7 @@
 {
+  "scripts": {
+    "prisma:generate": "PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1 npx prisma generate"
+  },
   "dependencies": {
     "@prisma/client": "^6.12.0",
     "@prisma/extension-accelerate": "^2.0.2",
