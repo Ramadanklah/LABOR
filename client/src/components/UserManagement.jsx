@@ -56,7 +56,9 @@ const UserManagement = ({ currentUser }) => {
 
   // Filter users locally for performance
   const filteredUsers = useMemo(() => {
-    return users.filter(user => {
+    // Ensure users is always an array
+    const userArray = Array.isArray(users) ? users : [];
+    return userArray.filter(user => {
       const matchesSearch = !filters.search || 
         user.firstName.toLowerCase().includes(filters.search.toLowerCase()) ||
         user.lastName.toLowerCase().includes(filters.search.toLowerCase()) ||

@@ -264,7 +264,11 @@ class UserModel {
       permissions: user.permissions
     };
 
-    return jwt.sign(payload, process.env.JWT_SECRET || 'fallback-secret-key', {
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      throw new Error('JWT_SECRET environment variable is required');
+    }
+    return jwt.sign(payload, jwtSecret, {
       expiresIn: process.env.JWT_EXPIRATION || '24h'
     });
   }
@@ -272,7 +276,11 @@ class UserModel {
   // Verify JWT token
   verifyToken(token) {
     try {
-      return jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key');
+      const jwtSecret = process.env.JWT_SECRET;
+      if (!jwtSecret) {
+        throw new Error('JWT_SECRET environment variable is required');
+      }
+      return jwt.verify(token, jwtSecret);
     } catch (error) {
       throw new Error('Invalid or expired token');
     }
