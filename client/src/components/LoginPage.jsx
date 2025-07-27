@@ -7,6 +7,7 @@ function LoginPage({ onLoginSuccess, onError }) {
   const [bsnr, setBsnr] = useState('');
   const [lanr, setLanr] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -18,7 +19,8 @@ function LoginPage({ onLoginSuccess, onError }) {
     try {
       const loginData = {
         password,
-        ...(loginMethod === 'email' ? { email } : { bsnr, lanr })
+        ...(loginMethod === 'email' ? { email } : { bsnr, lanr }),
+        ...(otp ? { otp } : {})
       };
 
       const response = await apiClient.post('/auth/login', loginData);
@@ -174,6 +176,21 @@ function LoginPage({ onLoginSuccess, onError }) {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 placeholder="Enter your password"
+              />
+            </div>
+
+            {/* OTP Field - visible when user has 2FA enabled (optional input) */}
+            <div className="mb-6">
+              <label htmlFor="otp" className="block text-sm font-medium text-gray-700 mb-2">
+                2-Factor Code (if enabled)
+              </label>
+              <input
+                type="text"
+                id="otp"
+                className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                placeholder="123456"
               />
             </div>
 
