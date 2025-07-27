@@ -71,7 +71,8 @@ function ResultsDashboard({ token, onLogout }) {
 
   // Memoized filtered results for performance
   const filteredResults = useMemo(() => {
-    let filtered = results;
+    // Ensure results is always an array
+    let filtered = Array.isArray(results) ? results : [];
 
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase();
@@ -128,7 +129,7 @@ function ResultsDashboard({ token, onLogout }) {
       
       if (response.ok) {
         const data = await response.json();
-        setResults(data);
+        setResults(data.results || []);
         setError('');
       } else {
         throw new Error(`HTTP error! status: ${response.status}`);
