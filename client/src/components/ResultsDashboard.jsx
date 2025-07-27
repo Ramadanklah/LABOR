@@ -72,7 +72,9 @@ function ResultsDashboard({ token, onLogout }) {
   // Memoized filtered results for performance
   const filteredResults = useMemo(() => {
     // Ensure results is always an array
+    console.log('Results in useMemo:', results, 'Type:', typeof results, 'Is array:', Array.isArray(results)); // Debug log
     let filtered = Array.isArray(results) ? results : [];
+    console.log('Filtered after array check:', filtered, 'Length:', filtered.length); // Debug log
 
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase();
@@ -96,6 +98,11 @@ function ResultsDashboard({ token, onLogout }) {
 
   // Memoized pagination
   const paginatedResults = useMemo(() => {
+    console.log('Paginating results:', filteredResults, 'Type:', typeof filteredResults, 'Is array:', Array.isArray(filteredResults)); // Debug log
+    if (!Array.isArray(filteredResults)) {
+      console.error('filteredResults is not an array!', filteredResults);
+      return [];
+    }
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
     return filteredResults.slice(startIndex, endIndex);
@@ -120,6 +127,8 @@ function ResultsDashboard({ token, onLogout }) {
   const fetchResults = useCallback(async () => {
     try {
       setLoading(true);
+      console.log('Fetching results with token:', token ? 'Token present' : 'No token'); // Debug log
+      
       const response = await fetch('/api/results', {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -127,16 +136,31 @@ function ResultsDashboard({ token, onLogout }) {
         },
       });
       
+      console.log('Response status:', response.status, 'OK:', response.ok); // Debug log
+      
       if (response.ok) {
         const data = await response.json();
-        setResults(data.results || []);
+        console.log('API Response:', data); // Debug log
+        console.log('Data type:', typeof data, 'Is array:', Array.isArray(data)); // Debug log
+        console.log('Results:', data.results, 'Type:', typeof data.results, 'Is array:', Array.isArray(data.results)); // Debug log
+        
+        // Extra safety check
+        if (data && typeof data === 'object' && data.results) {
+          setResults(Array.isArray(data.results) ? data.results : []);
+        } else {
+          console.warn('Unexpected API response format:', data);
+          setResults([]);
+        }
         setError('');
       } else {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        console.error('API Error:', response.status, errorText);
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
       }
     } catch (error) {
       console.error('Error fetching results:', error);
       setError(error.message || 'Network error or server unavailable');
+      setResults([]); // Ensure results is always an array even on error
     } finally {
       setLoading(false);
     }
