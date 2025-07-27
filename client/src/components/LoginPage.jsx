@@ -23,7 +23,9 @@ function LoginPage({ onLoginSuccess, onError }) {
         ...(otp ? { otp } : {})
       };
 
+      console.log('Login attempt with data:', { ...loginData, password: '[HIDDEN]' }); // Debug log
       const response = await apiClient.post('/auth/login', loginData);
+      console.log('Login response:', response); // Debug log
       
       if (response.success) {
         setMessage(response.message);

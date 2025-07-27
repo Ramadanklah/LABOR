@@ -87,7 +87,19 @@ class APIClient {
       const response = await fetch(url, finalOptions);
       
       if (!response.ok) {
-        const error = new Error(`HTTP error! status: ${response.status}`);
+        // Try to get the error message from the response body
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch (e) {
+          // If we can't parse JSON, use the status text
+          errorMessage = response.statusText || errorMessage;
+        }
+        
+        const error = new Error(errorMessage);
         error.status = response.status;
         error.response = response;
         throw error;

@@ -28,3 +28,21 @@
 [32minfo[39m: Fetching results for user: admin@laborresults.de (admin) {"service":"lab-results-api","timestamp":"2025-07-27T16:52:04.741Z"}
 [32minfo[39m: GET /api/results - 200 - 3ms - User: admin@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-27T16:52:04.742Z"}
 [32minfo[39m: GET /api/users - 200 - 2ms - User: admin@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-27T16:52:11.035Z"}
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-07-27T22:09:34.538Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-07-27T22:09:34.539Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-07-27T22:09:34.540Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-07-27T22:09:34.540Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-07-27T22:09:34.540Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-07-27T22:09:34.540Z"}
+[32minfo[39m: GET /api/health - 200 - 3ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:09:41.841Z"}
+[33mwarn[39m: Failed login attempt: admin@laborresults.de - JWT_SECRET environment variable is required {"service":"lab-results-api","timestamp":"2025-07-27T22:09:51.157Z"}
+[32minfo[39m: POST /api/auth/login - 401 - 250ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:09:51.158Z"}
+[32minfo[39m: SIGTERM received, shutting down gracefully {"service":"lab-results-api","timestamp":"2025-07-27T22:10:07.173Z"}
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-07-27T22:10:13.109Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-07-27T22:10:13.110Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-07-27T22:10:13.110Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-07-27T22:10:13.111Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-07-27T22:10:13.114Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-07-27T22:10:13.114Z"}
+[32minfo[39m: Successful login for user: admin@laborresults.de (admin) {"service":"lab-results-api","timestamp":"2025-07-27T22:10:21.212Z"}
+[32minfo[39m: POST /api/auth/login - 200 - 307ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:10:21.216Z"}
