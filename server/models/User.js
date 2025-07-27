@@ -1,10 +1,11 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const speakeasy = require('speakeasy');
 
 // User roles with hierarchical permissions
 const USER_ROLES = {
   ADMIN: 'admin',
-  DOCTOR: 'doctor', 
+  DOCTOR: 'doctor',
   LAB_TECHNICIAN: 'lab_technician',
   PATIENT: 'patient'
 };
@@ -52,7 +53,7 @@ class UserModel {
     this.users = new Map();
     this.usersByEmail = new Map();
     this.usersByBsnrLanr = new Map();
-    
+
     // Initialize with default admin user
     this.initializeDefaultUsers();
   }
@@ -115,7 +116,9 @@ class UserModel {
       lanr,
       specialization,
       department,
-      isActive = true
+      isActive = true,
+      isTwoFactorEnabled = false,
+      twoFactorSecret = null
     } = userData;
 
     // Validation
@@ -158,6 +161,8 @@ class UserModel {
       specialization,
       department,
       isActive,
+      isTwoFactorEnabled,
+      twoFactorSecret,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       lastLogin: null,
@@ -168,7 +173,7 @@ class UserModel {
     // Store user
     this.users.set(userId, user);
     this.usersByEmail.set(email.toLowerCase(), userId);
-    
+
     if (bsnr && lanr) {
       this.usersByBsnrLanr.set(`${bsnr}-${lanr}`, userId);
     }
@@ -179,7 +184,7 @@ class UserModel {
   }
 
   // Authenticate user
-  async authenticateUser(email, password, bsnr = null, lanr = null) {
+  async authenticateUser(email, password, bsnr = null, lanr = null, otp = null) {
     let user;
 
     // Find user by email or BSNR/LANR
@@ -206,12 +211,30 @@ class UserModel {
 
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password);
-    
+
     if (!isValidPassword) {
       // Increment login attempts
       user.loginAttempts = (user.loginAttempts || 0) + 1;
       user.updatedAt = new Date().toISOString();
       throw new Error('Invalid credentials');
+    }
+
+    // If 2FA is enabled, require OTP verification
+    if (user.isTwoFactorEnabled) {
+      if (!otp) {
+        throw new Error('Two-factor authentication code required');
+      }
+
+      const verified = speakeasy.totp.verify({
+        secret: user.twoFactorSecret,
+        encoding: 'base32',
+        token: otp,
+        window: 1
+      });
+
+      if (!verified) {
+        throw new Error('Invalid two-factor authentication code');
+      }
     }
 
     // Reset login attempts on successful login
@@ -294,7 +317,7 @@ class UserModel {
       if (this.usersByEmail.has(updates.email.toLowerCase())) {
         throw new Error('Email already exists');
       }
-      
+
       // Remove old email mapping
       this.usersByEmail.delete(user.email);
       // Add new email mapping
@@ -302,17 +325,17 @@ class UserModel {
     }
 
     // Handle BSNR/LANR update
-    if ((updates.bsnr || updates.lanr) && 
+    if ((updates.bsnr || updates.lanr) &&
         (updates.bsnr !== user.bsnr || updates.lanr !== user.lanr)) {
-      
+
       const newBsnr = updates.bsnr || user.bsnr;
       const newLanr = updates.lanr || user.lanr;
       const newKey = `${newBsnr}-${newLanr}`;
-      
+
       if (this.usersByBsnrLanr.has(newKey)) {
         throw new Error('BSNR/LANR combination already exists');
       }
-      
+
       // Remove old mapping
       if (user.bsnr && user.lanr) {
         this.usersByBsnrLanr.delete(`${user.bsnr}-${user.lanr}`);
@@ -349,7 +372,7 @@ class UserModel {
     // Remove from all mappings
     this.users.delete(userId);
     this.usersByEmail.delete(user.email);
-    
+
     if (user.bsnr && user.lanr) {
       this.usersByBsnrLanr.delete(`${user.bsnr}-${user.lanr}`);
     }
@@ -378,7 +401,7 @@ class UserModel {
 
     if (filters.search) {
       const searchTerm = filters.search.toLowerCase();
-      filteredUsers = filteredUsers.filter(user => 
+      filteredUsers = filteredUsers.filter(user =>
         user.firstName.toLowerCase().includes(searchTerm) ||
         user.lastName.toLowerCase().includes(searchTerm) ||
         user.email.toLowerCase().includes(searchTerm) ||
@@ -398,7 +421,7 @@ class UserModel {
   // Get user statistics
   getUserStats() {
     const users = Array.from(this.users.values());
-    
+
     return {
       total: users.length,
       active: users.filter(u => u.isActive).length,
@@ -410,6 +433,53 @@ class UserModel {
         patient: users.filter(u => u.role === USER_ROLES.PATIENT).length
       }
     };
+  }
+
+  // Generate a temporary 2FA secret for the user to scan
+  generateTwoFactorSecret(userId) {
+    const user = this.users.get(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    if (user.isTwoFactorEnabled) {
+      throw new Error('Two-factor authentication is already enabled for this account');
+    }
+
+    const secret = speakeasy.generateSecret({
+      name: `Laboratory Results (${user.email})`
+    });
+
+    // Store secret temporarily until verified
+    user.twoFactorSecret = secret.base32;
+
+    return {
+      otpauthUrl: secret.otpauth_url,
+      base32: secret.base32
+    };
+  }
+
+  // Verify the OTP and permanently enable 2FA
+  verifyAndEnableTwoFactor(userId, token) {
+    const user = this.users.get(userId);
+    if (!user || !user.twoFactorSecret) {
+      throw new Error('Two-factor setup has not been initiated');
+    }
+
+    const verified = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: 'base32',
+      token,
+      window: 1
+    });
+
+    if (!verified) {
+      throw new Error('Invalid two-factor authentication code');
+    }
+
+    user.isTwoFactorEnabled = true;
+    user.updatedAt = new Date().toISOString();
+    return true;
   }
 }
 

@@ -274,7 +274,7 @@ app.get('/api/health', (req, res) => {
 
 // Login endpoint with enhanced authentication
 app.post('/api/auth/login', asyncHandler(async (req, res) => {
-  const { email, password, bsnr, lanr } = req.body;
+  const { email, password, bsnr, lanr, otp } = req.body;
 
   // Input validation
   if ((!email && (!bsnr || !lanr)) || !password) {
@@ -285,7 +285,7 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
   }
 
   try {
-    const authResult = await userModel.authenticateUser(email, password, bsnr, lanr);
+    const authResult = await userModel.authenticateUser(email, password, bsnr, lanr, otp);
     
     logger.info(`Successful login for user: ${authResult.user.email} (${authResult.user.role})`);
     
@@ -321,6 +321,34 @@ app.post('/api/auth/logout', authenticateToken, (req, res) => {
     message: 'Logged out successfully'
   });
 });
+
+// --- TWO-FACTOR AUTHENTICATION ROUTES ---
+
+// Generate a new 2FA secret for the authenticated user
+app.post('/api/auth/setup-2fa', authenticateToken, asyncHandler(async (req, res) => {
+  try {
+    const { otpauthUrl, base32 } = userModel.generateTwoFactorSecret(req.user.id);
+    res.json({ success: true, otpauthUrl, secret: base32 });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+}));
+
+// Verify the provided OTP and permanently enable 2FA
+app.post('/api/auth/verify-2fa', authenticateToken, asyncHandler(async (req, res) => {
+  const { token } = req.body;
+
+  if (!token) {
+    return res.status(400).json({ success: false, message: 'OTP token required' });
+  }
+
+  try {
+    userModel.verifyAndEnableTwoFactor(req.user.id, token);
+    res.json({ success: true, message: 'Two-factor authentication enabled successfully' });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+}));
 
 // === USER MANAGEMENT ROUTES ===
 
