@@ -11,6 +11,9 @@ const path = require('path');
 const LDTGenerator = require('./utils/ldtGenerator');
 const PDFGenerator = require('./utils/pdfGenerator');
 const { UserModel, USER_ROLES, ROLE_PERMISSIONS } = require('./models/User');
+const bodyParser = require('body-parser');
+const parseLDT = require('./utils/ldtParser');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -214,7 +217,18 @@ const mockDatabase = {
     { id: 'res004', date: '2023-01-20', type: 'Chemistry Panel', status: 'Final', patient: 'Anna Schmidt', bsnr: '123456789', lanr: '1234568', doctorId: null, assignedUsers: ['lab@laborresults.de'] },
     { id: 'res005', date: '2023-01-18', type: 'Immunology', status: 'Final', patient: 'Peter Mueller', bsnr: '123456789', lanr: '1234568', doctorId: null, assignedUsers: ['lab@laborresults.de'] },
   ],
+ 
+  // Raw inbound LDT messages received from external systems
+  ldtMessages: [],
 
+  /**
+   * Persist a newly received LDT message in memory.
+   * @param {object} messageObj { id, receivedAt, raw, parsed }
+   */
+  addLDTMessage(messageObj) {
+    this.ldtMessages.push(messageObj);
+  },
+  
   // Get results based on user role and permissions
   getResultsForUser(user) {
     let filteredResults = this.results;
@@ -562,30 +576,53 @@ app.get('/api/results/:resultId', authenticateToken, asyncHandler(async (req, re
   });
 }));
 
-// Mirth Connect ingestion endpoint with enhanced validation
-app.post('/api/mirth-webhook', asyncHandler(async (req, res) => {
-  logger.info('Received data from Mirth Connect', { 
-    headers: req.headers,
-    bodySize: JSON.stringify(req.body).length 
-  });
-
-  // Validate incoming data structure
-  if (!req.body || typeof req.body !== 'object') {
-    return res.status(400).json({
-      success: false,
-      message: 'Invalid data format'
+// Mirth Connect ingestion endpoint to accept LDT XML payloads
+app.post(
+  '/api/mirth-webhook',
+  bodyParser.text({ type: '*/*', limit: '10mb' }),
+  asyncHandler(async (req, res) => {
+    logger.info('Received payload from Mirth Connect', {
+      contentType: req.headers['content-type'],
+      size: req.body ? req.body.length : 0,
     });
-  }
 
-  // Process data (placeholder for actual implementation)
-  // In production: validate against LDT schema, sanitize, store in database
-  
-  res.status(200).json({
-    success: true,
-    message: 'Data received and processed successfully',
-    timestamp: new Date().toISOString()
-  });
-}));
+    // Basic validation – we expect a non-empty string with <column1> tags
+    if (!req.body || typeof req.body !== 'string' || !req.body.includes('<column1>')) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid LDT XML payload detected',
+      });
+    }
+
+    // Parse the XML into individual LDT records
+    const parsedRecords = parseLDT(req.body);
+
+    if (parsedRecords.length === 0) {
+      return res.status(422).json({
+        success: false,
+        message: 'Unable to parse any LDT records',
+      });
+    }
+
+    // Persist the raw message & parsed representation – replace with real DB in production
+    const messageId = crypto.randomUUID();
+    mockDatabase.addLDTMessage({
+      id: messageId,
+      receivedAt: new Date().toISOString(),
+      raw: req.body,
+      parsed: parsedRecords,
+    });
+
+    logger.info(`Stored inbound LDT message (${parsedRecords.length} records) under id ${messageId}`);
+
+    // Respond immediately – async post-processing can be added later
+    res.status(202).json({
+      success: true,
+      messageId,
+      recordCount: parsedRecords.length,
+    });
+  })
+);
 
 // Enhanced download endpoints with access control
 // Download all results as LDT
