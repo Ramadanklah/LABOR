@@ -821,19 +821,41 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-// Start server
-const server = app.listen(PORT, () => {
-  logger.info(`Server running on http://localhost:${PORT}`);
-  logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info('User management system initialized with default users:');
-  logger.info('  Admin: admin@laborresults.de / admin123');
-  logger.info('  Doctor: doctor@laborresults.de / doctor123');
-  logger.info('  Lab Tech: lab@laborresults.de / lab123');
-});
+// Start server with port conflict handling
+function startServer(port, retries = 3) {
+  const server = app.listen(port, () => {
+    logger.info(`Server running on http://localhost:${port}`);
+    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    logger.info('User management system initialized with default users:');
+    logger.info('  Admin: admin@laborresults.de / admin123');
+    logger.info('  Doctor: doctor@laborresults.de / doctor123');
+    logger.info('  Lab Tech: lab@laborresults.de / lab123');
+  });
 
-// Handle server errors
-server.on('error', (error) => {
-  logger.error('Server error:', error);
-});
+  // Handle server errors
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      logger.warn(`Port ${port} is already in use`);
+      if (retries > 0) {
+        const newPort = port + 1;
+        logger.info(`Trying port ${newPort}...`);
+        server.close();
+        setTimeout(() => startServer(newPort, retries - 1), 1000);
+      } else {
+        logger.error('No available ports found. Please stop the process using port 5000 or use a different port.');
+        logger.error('On Windows, run: netstat -ano | findstr :5000 to find the process, then taskkill /PID <pid> /F');
+        logger.error('Or set a different PORT environment variable: SET PORT=3001 && npm start');
+        process.exit(1);
+      }
+    } else {
+      logger.error('Server error:', error);
+      process.exit(1);
+    }
+  });
+
+  return server;
+}
+
+const server = startServer(PORT);
 
 module.exports = app;
