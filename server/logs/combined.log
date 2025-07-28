@@ -192,3 +192,17 @@
 [32minfo[39m: POST /api/login - 200 - 250ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:10:20.565Z"}
 [32minfo[39m: GET /api/health - 200 - 1ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:20:25.690Z"}
 [32minfo[39m: GET /api/health - 200 - 1ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:20:33.987Z"}
+[32minfo[39m: GET /api/health - 200 - 4ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:38:56.399Z"}
+[32minfo[39m: Successful legacy login for user: doctor@laborresults.de (doctor) {"service":"lab-results-api","timestamp":"2025-07-28T21:39:00.083Z"}
+[32minfo[39m: POST /api/login - 200 - 253ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:39:00.084Z"}
+[32minfo[39m: Successful legacy login for user: doctor@laborresults.de (doctor) {"service":"lab-results-api","timestamp":"2025-07-28T21:39:03.295Z"}
+[32minfo[39m: POST /api/login - 200 - 249ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:39:03.296Z"}
+[32minfo[39m: Fetching results for user: doctor@laborresults.de (doctor) {"service":"lab-results-api","timestamp":"2025-07-28T21:39:05.589Z"}
+[32minfo[39m: AUDIT: RESULTS_ACCESSED {"details":{"ipAddress":"::1","limit":50,"page":1,"resultCount":3},"service":"lab-results-api","timestamp":"2025-07-28T21:39:05.592Z","userEmail":"doctor@laborresults.de","userId":"user_1753736171776_es000qbq7","userRole":"doctor"}
+[32minfo[39m: GET /api/results - 200 - 7ms - User: doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-28T21:39:05.593Z"}
+[32minfo[39m: Successful legacy login for user: admin@laborresults.de (admin) {"service":"lab-results-api","timestamp":"2025-07-28T21:39:09.307Z"}
+[32minfo[39m: POST /api/login - 200 - 250ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:39:09.308Z"}
+[32minfo[39m: GET /api/admin/unassigned-results - 200 - 1ms - User: admin@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-28T21:39:09.315Z"}
+[32minfo[39m: Received payload from Mirth Connect {"contentType":"text/plain","service":"lab-results-api","size":45,"timestamp":"2025-07-28T21:39:12.072Z"}
+[32minfo[39m: Processed LDT message 5eb51cb8-6ebe-4b2a-9bb4-7b14505a26ce: {"assignedTo":null,"bsnr":null,"lanr":null,"patient":"Unknown Patient","recordCount":1,"resultId":"res_1753738752074_mp926mx07","service":"lab-results-api","timestamp":"2025-07-28T21:39:12.074Z"}
+[32minfo[39m: POST /api/mirth-webhook - 202 - 11ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:39:12.075Z"}
