@@ -151,3 +151,23 @@
 [32minfo[39m: Received payload from Mirth Connect {"contentType":"text/plain","service":"lab-results-api","size":12,"timestamp":"2025-07-28T20:30:40.873Z"}
 [32minfo[39m: POST /api/mirth-webhook - 422 - 1ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T20:30:40.874Z"}
 [32minfo[39m: GET /api/health - 200 - 0ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T20:30:41.047Z"}
+[32minfo[39m: Received payload from Mirth Connect {"contentType":"text/plain","service":"lab-results-api","size":191,"timestamp":"2025-07-28T20:53:52.263Z"}
+[32minfo[39m: Stored inbound LDT message (12 records) under id bffef5ca-c8b9-4e9c-b9fc-60e5c3859638 {"service":"lab-results-api","timestamp":"2025-07-28T20:53:52.265Z"}
+[32minfo[39m: POST /api/mirth-webhook - 202 - 5ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T20:53:52.266Z"}
+[32minfo[39m: Successful legacy login for user: admin@laborresults.de (admin) {"service":"lab-results-api","timestamp":"2025-07-28T20:53:55.711Z"}
+[32minfo[39m: POST /api/login - 200 - 252ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T20:53:55.711Z"}
+[32minfo[39m: Successful legacy login for user: admin@laborresults.de (admin) {"service":"lab-results-api","timestamp":"2025-07-28T20:56:04.734Z"}
+[32minfo[39m: POST /api/login - 200 - 250ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T20:56:04.735Z"}
+[32minfo[39m: GET /api/admin/unassigned-results - 404 - 0ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T20:56:04.742Z"}
+[32minfo[39m: SIGTERM received, shutting down gracefully {"service":"lab-results-api","timestamp":"2025-07-28T20:56:10.941Z"}
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-07-28T20:56:11.271Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-07-28T20:56:11.272Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-07-28T20:56:11.272Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-07-28T20:56:11.272Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-07-28T20:56:11.272Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-07-28T20:56:11.273Z"}
+[32minfo[39m: Successful legacy login for user: admin@laborresults.de (admin) {"service":"lab-results-api","timestamp":"2025-07-28T20:56:16.354Z"}
+[32minfo[39m: POST /api/login - 200 - 253ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T20:56:16.356Z"}
+[32minfo[39m: Successful legacy login for user: admin@laborresults.de (admin) {"service":"lab-results-api","timestamp":"2025-07-28T20:56:20.063Z"}
+[32minfo[39m: POST /api/login - 200 - 250ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T20:56:20.063Z"}
+[32minfo[39m: GET /api/admin/unassigned-results - 200 - 2ms - User: admin@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-28T20:56:22.558Z"}
