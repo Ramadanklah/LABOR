@@ -14,6 +14,7 @@ const { UserModel, USER_ROLES, ROLE_PERMISSIONS } = require('./models/User');
 const bodyParser = require('body-parser');
 const parseLDT = require('./utils/ldtParser');
 const crypto = require('crypto');
+const BulkUserManager = require('./utils/bulkUserManager');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -27,6 +28,9 @@ const cache = new NodeCache({
 
 // Initialize user model
 const userModel = new UserModel();
+
+// Initialize bulk user manager
+const bulkUserManager = new BulkUserManager(userModel);
 
 // Configure logger
 const logger = winston.createLogger({
@@ -991,6 +995,151 @@ app.get('/api/admin/audit-log', authenticateToken, requireAdmin, asyncHandler(as
   });
 }));
 
+// Bulk User Management Endpoints (Admin only)
+app.post('/api/admin/bulk-import', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  try {
+    const { users } = req.body;
+    
+    if (!Array.isArray(users)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Users must be an array'
+      });
+    }
+
+    const results = {
+      total: users.length,
+      successful: 0,
+      failed: 0,
+      errors: []
+    };
+
+    // Process users in batches
+    const batchSize = 10;
+    for (let i = 0; i < users.length; i += batchSize) {
+      const batch = users.slice(i, i + batchSize);
+      await bulkUserManager.processUserBatch(batch, results);
+    }
+
+    // Log audit event
+    mockDatabase.logAuditEvent('BULK_USER_IMPORT', req.user, {
+      total: results.total,
+      successful: results.successful,
+      failed: results.failed
+    });
+
+    res.json({
+      success: true,
+      message: 'Bulk import completed',
+      results
+    });
+
+  } catch (error) {
+    logger.error('Bulk import error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Bulk import failed',
+      error: error.message
+    });
+  }
+}));
+
+app.post('/api/admin/generate-sample-doctors', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  try {
+    const { count = 100 } = req.body;
+    
+    if (count > 1000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Maximum 1000 users can be generated at once'
+      });
+    }
+
+    const doctors = await bulkUserManager.generateSampleDoctors();
+    const results = {
+      total: doctors.length,
+      successful: 0,
+      failed: 0,
+      errors: []
+    };
+
+    // Process doctors in batches
+    const batchSize = 10;
+    for (let i = 0; i < doctors.length; i += batchSize) {
+      const batch = doctors.slice(i, i + batchSize);
+      await bulkUserManager.processUserBatch(batch, results);
+    }
+
+    // Log audit event
+    mockDatabase.logAuditEvent('GENERATE_SAMPLE_DOCTORS', req.user, {
+      count: results.total,
+      successful: results.successful,
+      failed: results.failed
+    });
+
+    res.json({
+      success: true,
+      message: `Generated ${results.successful} sample doctors`,
+      results
+    });
+
+  } catch (error) {
+    logger.error('Generate sample doctors error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate sample doctors',
+      error: error.message
+    });
+  }
+}));
+
+app.get('/api/admin/user-statistics', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  try {
+    const stats = bulkUserManager.getUserStatistics();
+    
+    res.json({
+      success: true,
+      statistics: stats
+    });
+
+  } catch (error) {
+    logger.error('User statistics error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get user statistics',
+      error: error.message
+    });
+  }
+}));
+
+app.post('/api/admin/validate-user-data', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  try {
+    const { userData } = req.body;
+    
+    if (!userData) {
+      return res.status(400).json({
+        success: false,
+        message: 'User data is required'
+      });
+    }
+
+    const validation = bulkUserManager.validateUserData(userData);
+    
+    res.json({
+      success: true,
+      validation
+    });
+
+  } catch (error) {
+    logger.error('User validation error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to validate user data',
+      error: error.message
+    });
+  }
+}));
+
 // Mirth Connect ingestion endpoint to accept LDT payloads
 app.post(
   '/api/mirth-webhook',
@@ -1060,6 +1209,119 @@ app.post(
       message: newResult.assignedTo 
         ? `Result assigned to ${newResult.assignedTo}` 
         : 'Result created but not assigned (admin review required)'
+    });
+  })
+);
+
+// JSON webhook endpoint for structured data from Mirth Connect
+app.post(
+  '/api/webhook/json',
+  bodyParser.json({ limit: '10mb' }),
+  asyncHandler(async (req, res) => {
+    logger.info('Received JSON payload from Mirth Connect', {
+      contentType: req.headers['content-type'],
+      size: req.body ? JSON.stringify(req.body).length : 0,
+    });
+
+    // Validate JSON payload structure
+    const { lanr, bsnr, patient, type, status, date, resultId, data } = req.body;
+
+    if (!lanr || !bsnr) {
+      return res.status(400).json({
+        success: false,
+        message: 'LANR and BSNR are required fields',
+      });
+    }
+
+    // Find user by BSNR/LANR
+    const user = userModel.getUserByBsnrLanr(bsnr, lanr);
+    
+    if (!user) {
+      logger.warn(`No user found for BSNR: ${bsnr}, LANR: ${lanr}`);
+      return res.status(404).json({
+        success: false,
+        message: `No doctor found for BSNR: ${bsnr}, LANR: ${lanr}`,
+        bsnr,
+        lanr
+      });
+    }
+
+    // Create result from JSON data
+    const messageId = crypto.randomUUID();
+    const resultId = `res_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const newResult = {
+      id: resultId,
+      date: date || new Date().toISOString().slice(0, 10),
+      type: type || 'JSON Import',
+      status: status || 'Final',
+      patient: patient || 'Unknown Patient',
+      bsnr,
+      lanr,
+      doctorId: user.id,
+      assignedUsers: [user.email],
+      assignedTo: user.email,
+      ldtMessageId: messageId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      patientData: {
+        firstName: patient ? patient.split(' ')[0] : '',
+        lastName: patient ? patient.split(' ').slice(1).join(' ') : '',
+        patientId: data?.patientId || null
+      },
+      labData: {
+        name: data?.labName || 'Unknown Lab',
+        address: data?.labAddress || '',
+        requestId: data?.requestId || null
+      },
+      testData: {
+        requestId: data?.requestId || null,
+        testDate: date || new Date().toISOString().slice(0, 10),
+        parameters: data?.parameters || [],
+        testType: type || 'Unknown Test'
+      },
+      rawData: data || {}
+    };
+
+    // Add the result to the database
+    mockDatabase.results.push(newResult);
+
+    // Log the processing
+    logger.info(`Processed JSON message ${messageId}:`, {
+      resultId: newResult.id,
+      bsnr,
+      lanr,
+      patient: newResult.patient,
+      assignedTo: newResult.assignedTo,
+      user: user.email
+    });
+
+    // Log audit event
+    mockDatabase.logAuditEvent('RESULT_CREATED', user, {
+      resultId: newResult.id,
+      patient: newResult.patient,
+      bsnr,
+      lanr,
+      ipAddress: req.ip
+    });
+
+    // Respond with processing details
+    res.status(202).json({
+      success: true,
+      messageId,
+      resultId: newResult.id,
+      bsnr,
+      lanr,
+      patient: newResult.patient,
+      assignedTo: newResult.assignedTo,
+      message: `Result assigned to ${newResult.assignedTo}`,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role
+      }
     });
   })
 );
