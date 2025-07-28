@@ -102,22 +102,27 @@ else
     ((TESTS_FAILED++))
 fi
 
-# Test 10: Mirth Connect Webhook
-run_test "Mirth Connect Webhook" \
+# Test 10: Mirth Connect Webhook (XML format)
+run_test "Mirth Connect Webhook (XML)" \
     "curl -s -X POST http://localhost:5000/api/mirth-webhook -H 'Content-Type: text/plain' -d '<column1>0278000921818LABOR_RESULTS_V2.1</column1><column1>022800091032024XXXXX</column1>'" \
     '"success":true'
 
-# Test 11: Invalid Mirth Webhook
+# Test 11: Mirth Connect Webhook (Line-based format)
+run_test "Mirth Connect Webhook (Line-based)" \
+    "curl -s -X POST http://localhost:5000/api/mirth-webhook -H 'Content-Type: text/plain' -d '01380008230\n014810000204\n0199212LDT1014.01'" \
+    '"success":true'
+
+# Test 12: Invalid Mirth Webhook
 run_test "Invalid Mirth Webhook" \
     "curl -s -X POST http://localhost:5000/api/mirth-webhook -H 'Content-Type: text/plain' -d 'invalid data'" \
     '"success":false'
 
-# Test 12: Frontend Accessibility
+# Test 13: Frontend Accessibility
 run_test "Frontend Accessibility" \
     "curl -s -I http://localhost:3000" \
     "HTTP/1.1 200"
 
-# Test 13: Frontend API Proxy
+# Test 14: Frontend API Proxy
 run_test "Frontend API Proxy" \
     "curl -s http://localhost:3000/api/health" \
     '"status":"healthy"'

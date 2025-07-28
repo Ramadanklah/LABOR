@@ -260,11 +260,23 @@ Receive laboratory data from Mirth Connect in LDT format.
 
 **Headers:** `Content-Type: text/plain` or `application/xml`
 
-**Request Body:** LDT XML format
+**Request Body:** LDT format (supports both XML and line-based formats)
+
+**XML Format (Legacy):**
 ```xml
 <column1>0278000921818LABOR_RESULTS_V2.1</column1>
 <column1>022800091032024XXXXX</column1>
 <column1>022800091042230000</column1>
+```
+
+**Line-based Format (Current):**
+```
+01380008230
+014810000204
+0199212LDT1014.01
+0180201798115000
+0220203Labor Potsdam
+0260205Charlottenstr. 72
 ```
 
 **Response:**
@@ -341,6 +353,10 @@ Check server health status.
 
 The system processes LDT (Labor Daten Transfer) messages according to the German standard:
 
+#### Supported Formats
+- **Line-based Format**: Each line is a separate LDT record (current standard)
+- **XML Format**: Legacy format with `<column1>` tags (backward compatibility)
+
 #### Record Types
 - **8000**: Header record (software version, creation date/time)
 - **8100**: Practice/Lab identification
@@ -355,12 +371,24 @@ Each LDT record follows this format:
 [LENGTH][RECORD_TYPE][FIELD_ID][CONTENT]
 ```
 
-Example:
+**Standard Records (11+ characters):**
 ```
-0278000921818LABOR_RESULTS_V2.1
-022800091032024XXXXX
-022800091042230000
+01380008230
+014810000204
+0199212LDT1014.01
 ```
+
+**Short Records (8 characters):**
+```
+01091064
+0108609K
+01031091
+```
+
+**Field ID Types:**
+- Numeric: `8230`, `0020`, `9218`
+- Alphanumeric: `LDT1`, `KLEM`, `V001`
+- Special characters: `*IMA` (for image paths)
 
 ### Mirth Connect Integration
 

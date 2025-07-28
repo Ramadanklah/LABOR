@@ -608,7 +608,7 @@ app.get('/api/results/:resultId', authenticateToken, asyncHandler(async (req, re
   });
 }));
 
-// Mirth Connect ingestion endpoint to accept LDT XML payloads
+// Mirth Connect ingestion endpoint to accept LDT payloads
 app.post(
   '/api/mirth-webhook',
   bodyParser.text({ type: '*/*', limit: '10mb' }),
@@ -618,15 +618,15 @@ app.post(
       size: req.body ? req.body.length : 0,
     });
 
-    // Basic validation – we expect a non-empty string with <column1> tags
-    if (!req.body || typeof req.body !== 'string' || !req.body.includes('<column1>')) {
+    // Basic validation – we expect a non-empty string
+    if (!req.body || typeof req.body !== 'string' || req.body.trim().length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'No valid LDT XML payload detected',
+        message: 'No valid LDT payload detected',
       });
     }
 
-    // Parse the XML into individual LDT records
+    // Parse the LDT payload into individual records
     const parsedRecords = parseLDT(req.body);
 
     if (parsedRecords.length === 0) {
