@@ -286,7 +286,39 @@ app.get('/api/health', (req, res) => {
 
 // === AUTHENTICATION ROUTES ===
 
-// Login endpoint with enhanced authentication
+// Legacy login endpoint for backward compatibility
+app.post('/api/login', asyncHandler(async (req, res) => {
+  const { bsnr, lanr, password } = req.body;
+
+  // Input validation
+  if (!bsnr || !lanr || !password) {
+    return res.status(400).json({
+      success: false,
+      message: 'BSNR, LANR, and password are required'
+    });
+  }
+
+  try {
+    const authResult = await userModel.authenticateUser(null, password, bsnr, lanr);
+    
+    logger.info(`Successful legacy login for user: ${authResult.user.email} (${authResult.user.role})`);
+    
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token: authResult.token
+    });
+  } catch (error) {
+    logger.warn(`Failed legacy login attempt: ${bsnr}/${lanr} - ${error.message}`);
+    
+    res.status(401).json({
+      success: false,
+      message: 'Invalid credentials'
+    });
+  }
+}));
+
+// Enhanced login endpoint with 2FA support
 app.post('/api/auth/login', asyncHandler(async (req, res) => {
   const { email, password, bsnr, lanr, otp } = req.body;
 

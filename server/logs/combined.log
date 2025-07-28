@@ -46,3 +46,47 @@
 [32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-07-27T22:10:13.114Z"}
 [32minfo[39m: Successful login for user: admin@laborresults.de (admin) {"service":"lab-results-api","timestamp":"2025-07-27T22:10:21.212Z"}
 [32minfo[39m: POST /api/auth/login - 200 - 307ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:10:21.216Z"}
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-07-27T22:38:50.020Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-07-27T22:38:50.022Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-07-27T22:38:50.022Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-07-27T22:38:50.022Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-07-27T22:38:50.022Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-07-27T22:38:50.022Z"}
+[32minfo[39m: GET /api/health - 200 - 2ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:38:53.687Z"}
+[33mwarn[39m: Failed legacy login attempt: 123456789/1234567 - Invalid credentials {"service":"lab-results-api","timestamp":"2025-07-27T22:38:55.698Z"}
+[32minfo[39m: POST /api/login - 401 - 248ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:38:55.699Z"}
+[32minfo[39m: Successful legacy login for user: doctor@laborresults.de (doctor) {"service":"lab-results-api","timestamp":"2025-07-27T22:39:04.261Z"}
+[32minfo[39m: POST /api/login - 200 - 251ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:39:04.261Z"}
+[32minfo[39m: Fetching results for user: doctor@laborresults.de (doctor) {"service":"lab-results-api","timestamp":"2025-07-27T22:39:10.253Z"}
+[32minfo[39m: GET /api/results - 200 - 3ms - User: doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-27T22:39:10.254Z"}
+[32minfo[39m: Received payload from Mirth Connect {"contentType":"text/plain","service":"lab-results-api","size":126,"timestamp":"2025-07-27T22:39:12.701Z"}
+[32minfo[39m: Stored inbound LDT message (3 records) under id 0dbbf470-ba9b-416e-9a11-8efd3cc54a00 {"service":"lab-results-api","timestamp":"2025-07-27T22:39:12.702Z"}
+[32minfo[39m: POST /api/mirth-webhook - 202 - 8ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:39:12.703Z"}
+[32minfo[39m: LDT file downloaded: lab_results_2025-07-27.ldt by doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-27T22:39:20.991Z"}
+[32minfo[39m: GET /api/download/ldt - 200 - 3ms - User: doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-27T22:39:20.992Z"}
+[32minfo[39m: PDF file downloaded: lab_results_2025-07-27.pdf by doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-27T22:39:27.923Z"}
+[32minfo[39m: GET /api/download/pdf - 200 - 32ms - User: doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-27T22:39:27.923Z"}
+[32minfo[39m: GET /api/health - 200 - 1ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:55:59.308Z"}
+[32minfo[39m: Successful legacy login for user: doctor@laborresults.de (doctor) {"service":"lab-results-api","timestamp":"2025-07-27T22:55:59.566Z"}
+[32minfo[39m: POST /api/login - 200 - 251ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:55:59.567Z"}
+[32minfo[39m: Successful legacy login for user: lab@laborresults.de (lab_technician) {"service":"lab-results-api","timestamp":"2025-07-27T22:55:59.821Z"}
+[32minfo[39m: POST /api/login - 200 - 248ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:55:59.822Z"}
+[32minfo[39m: Successful legacy login for user: admin@laborresults.de (admin) {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.075Z"}
+[32minfo[39m: POST /api/login - 200 - 247ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.076Z"}
+[33mwarn[39m: Failed legacy login attempt: 123456789/1234567 - Invalid credentials {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.329Z"}
+[32minfo[39m: POST /api/login - 401 - 248ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.330Z"}
+[32minfo[39m: Successful legacy login for user: doctor@laborresults.de (doctor) {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.583Z"}
+[32minfo[39m: POST /api/login - 200 - 247ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.583Z"}
+[32minfo[39m: Fetching results for user: doctor@laborresults.de (doctor) {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.592Z"}
+[32minfo[39m: GET /api/results - 200 - 1ms - User: doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.592Z"}
+[32minfo[39m: LDT file downloaded: lab_results_2025-07-27.ldt by doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.599Z"}
+[32minfo[39m: GET /api/download/ldt - 200 - 2ms - User: doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.600Z"}
+[32minfo[39m: PDF file downloaded: lab_results_2025-07-27.pdf by doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.618Z"}
+[32minfo[39m: GET /api/download/pdf - 200 - 12ms - User: doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.619Z"}
+[32minfo[39m: GET /api/results - 401 - 0ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.626Z"}
+[32minfo[39m: Received payload from Mirth Connect {"contentType":"text/plain","service":"lab-results-api","size":89,"timestamp":"2025-07-27T22:56:00.633Z"}
+[32minfo[39m: Stored inbound LDT message (2 records) under id c4f07bef-6a38-4752-ba4a-e7b243344b20 {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.633Z"}
+[32minfo[39m: POST /api/mirth-webhook - 202 - 1ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.633Z"}
+[32minfo[39m: Received payload from Mirth Connect {"contentType":"text/plain","service":"lab-results-api","size":12,"timestamp":"2025-07-27T22:56:00.641Z"}
+[32minfo[39m: POST /api/mirth-webhook - 400 - 0ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.641Z"}
+[32minfo[39m: GET /api/health - 200 - 1ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-27T22:56:00.661Z"}
