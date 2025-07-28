@@ -207,15 +207,116 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-// Mock database with enhanced data isolation
+// Mock database with enhanced data isolation and LDT matching
 const mockDatabase = {
-  // Enhanced results with user associations
+  // Audit log for tracking access and changes
+  auditLog: [],
+
+  /**
+   * Log an audit event
+   * @param {string} event - Event type
+   * @param {Object} user - User performing the action
+   * @param {Object} details - Additional details
+   */
+  logAuditEvent(event, user, details = {}) {
+    const auditEntry = {
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      event,
+      userId: user.id,
+      userEmail: user.email,
+      userRole: user.role,
+      details,
+      ipAddress: details.ipAddress || 'unknown'
+    };
+    
+    this.auditLog.push(auditEntry);
+    
+    // Also log to Winston
+    logger.info(`AUDIT: ${event}`, {
+      userId: user.id,
+      userEmail: user.email,
+      userRole: user.role,
+      details
+    });
+  },
+  // Enhanced results with user associations and LDT data
   results: [
-    { id: 'res001', date: '2023-01-15', type: 'Blood Count', status: 'Final', patient: 'Max Mustermann', bsnr: '123456789', lanr: '1234567', doctorId: null, assignedUsers: ['doctor@laborresults.de'] },
-    { id: 'res002', date: '2023-01-10', type: 'Urinalysis', status: 'Final', patient: 'Erika Musterfrau', bsnr: '123456789', lanr: '1234567', doctorId: null, assignedUsers: ['doctor@laborresults.de'] },
-    { id: 'res003', date: '2023-01-05', type: 'Microbiology', status: 'Preliminary', patient: 'Max Mustermann', bsnr: '123456789', lanr: '1234567', doctorId: null, assignedUsers: ['doctor@laborresults.de'] },
-    { id: 'res004', date: '2023-01-20', type: 'Chemistry Panel', status: 'Final', patient: 'Anna Schmidt', bsnr: '123456789', lanr: '1234568', doctorId: null, assignedUsers: ['lab@laborresults.de'] },
-    { id: 'res005', date: '2023-01-18', type: 'Immunology', status: 'Final', patient: 'Peter Mueller', bsnr: '123456789', lanr: '1234568', doctorId: null, assignedUsers: ['lab@laborresults.de'] },
+    { 
+      id: 'res001', 
+      date: '2023-01-15', 
+      type: 'Blood Count', 
+      status: 'Final', 
+      patient: 'Max Mustermann', 
+      bsnr: '123456789', 
+      lanr: '1234567', 
+      doctorId: null, 
+      assignedUsers: ['doctor@laborresults.de'],
+      assignedTo: 'doctor@laborresults.de',
+      ldtMessageId: null,
+      createdAt: '2023-01-15T10:00:00.000Z',
+      updatedAt: '2023-01-15T10:00:00.000Z'
+    },
+    { 
+      id: 'res002', 
+      date: '2023-01-10', 
+      type: 'Urinalysis', 
+      status: 'Final', 
+      patient: 'Erika Musterfrau', 
+      bsnr: '123456789', 
+      lanr: '1234567', 
+      doctorId: null, 
+      assignedUsers: ['doctor@laborresults.de'],
+      assignedTo: 'doctor@laborresults.de',
+      ldtMessageId: null,
+      createdAt: '2023-01-10T10:00:00.000Z',
+      updatedAt: '2023-01-10T10:00:00.000Z'
+    },
+    { 
+      id: 'res003', 
+      date: '2023-01-05', 
+      type: 'Microbiology', 
+      status: 'Preliminary', 
+      patient: 'Max Mustermann', 
+      bsnr: '123456789', 
+      lanr: '1234567', 
+      doctorId: null, 
+      assignedUsers: ['doctor@laborresults.de'],
+      assignedTo: 'doctor@laborresults.de',
+      ldtMessageId: null,
+      createdAt: '2023-01-05T10:00:00.000Z',
+      updatedAt: '2023-01-05T10:00:00.000Z'
+    },
+    { 
+      id: 'res004', 
+      date: '2023-01-20', 
+      type: 'Chemistry Panel', 
+      status: 'Final', 
+      patient: 'Anna Schmidt', 
+      bsnr: '123456789', 
+      lanr: '1234568', 
+      doctorId: null, 
+      assignedUsers: ['lab@laborresults.de'],
+      assignedTo: 'lab@laborresults.de',
+      ldtMessageId: null,
+      createdAt: '2023-01-20T10:00:00.000Z',
+      updatedAt: '2023-01-20T10:00:00.000Z'
+    },
+    { 
+      id: 'res005', 
+      date: '2023-01-18', 
+      type: 'Immunology', 
+      status: 'Final', 
+      patient: 'Peter Mueller', 
+      bsnr: '123456789', 
+      lanr: '1234568', 
+      doctorId: null, 
+      assignedUsers: ['lab@laborresults.de'],
+      assignedTo: 'lab@laborresults.de',
+      ldtMessageId: null,
+      createdAt: '2023-01-18T10:00:00.000Z',
+      updatedAt: '2023-01-18T10:00:00.000Z'
+    },
   ],
  
   // Raw inbound LDT messages received from external systems
@@ -228,6 +329,138 @@ const mockDatabase = {
   addLDTMessage(messageObj) {
     this.ldtMessages.push(messageObj);
   },
+
+  /**
+   * Extract BSNR and LANR from LDT records
+   * @param {Array} parsedRecords - Array of parsed LDT records
+   * @returns {Object} { bsnr, lanr, patientData }
+   */
+  extractLDTIdentifiers(parsedRecords) {
+    let bsnr = null;
+    let lanr = null;
+    let patientData = {};
+
+    for (const record of parsedRecords) {
+      // Look for BSNR and LANR in various record types
+      if (record.recordType === '8100') {
+        // BSNR and LANR might be in different field IDs
+        if (record.fieldId === '0201' || record.fieldId === '0020') {
+          bsnr = record.content;
+        } else if (record.fieldId === '0202' || record.fieldId === '0021') {
+          lanr = record.content;
+        }
+      }
+
+      // Look for patient data in record type 8200 (Patient data)
+      if (record.recordType === '8200') {
+        if (record.fieldId === '3101') {
+          patientData.lastName = record.content;
+        } else if (record.fieldId === '3102') {
+          patientData.firstName = record.content;
+        } else if (record.fieldId === '3103') {
+          patientData.birthDate = record.content;
+        } else if (record.fieldId === '3110') {
+          patientData.gender = record.content;
+        }
+      }
+
+      // Look for BSNR in record type 0201 (Lab info)
+      if (record.recordType === '0201') {
+        if (record.fieldId === '7981') {
+          bsnr = record.content;
+        }
+      }
+
+      // Look for LANR in record type 0212 (Lab info)
+      if (record.recordType === '0212') {
+        if (record.fieldId === '7733') {
+          lanr = record.content;
+        }
+      }
+
+      // Look for patient data in various record types
+      if (record.recordType === '3101') {
+        patientData.lastName = record.content;
+      } else if (record.recordType === '3102') {
+        patientData.firstName = record.content;
+      } else if (record.recordType === '3103') {
+        patientData.birthDate = record.content;
+      } else if (record.recordType === '3110') {
+        patientData.gender = record.content;
+      }
+    }
+
+    // If we don't find standard BSNR/LANR, try to extract from other fields
+    if (!bsnr || !lanr) {
+      for (const record of parsedRecords) {
+        // Look for potential identifiers in various fields
+        if (record.content && record.content.length >= 5) {
+          // Try to find BSNR-like patterns (9 digits)
+          if (/^\d{9}$/.test(record.content)) {
+            bsnr = record.content;
+          }
+          // Try to find LANR-like patterns (7 digits)
+          else if (/^\d{7}$/.test(record.content)) {
+            lanr = record.content;
+          }
+        }
+      }
+    }
+
+    return { bsnr, lanr, patientData };
+  },
+
+  /**
+   * Find user by BSNR and LANR
+   * @param {string} bsnr - BSNR value
+   * @param {string} lanr - LANR value
+   * @returns {Object|null} User object or null if not found
+   */
+  findUserByBsnrLanr(bsnr, lanr) {
+    if (!bsnr || !lanr) return null;
+    
+    // Use the userModel to find the user
+    return userModel.getUserByBsnrLanr(bsnr, lanr);
+  },
+
+  /**
+   * Create a new result from LDT data
+   * @param {Object} ldtData - Extracted LDT data
+   * @param {string} ldtMessageId - ID of the LDT message
+   * @returns {Object} New result object
+   */
+  createResultFromLDT(ldtData, ldtMessageId) {
+    const resultId = `res_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const result = {
+      id: resultId,
+      date: new Date().toISOString().slice(0, 10),
+      type: 'LDT Import',
+      status: 'Final',
+      patient: `${ldtData.patientData.firstName || ''} ${ldtData.patientData.lastName || ''}`.trim() || 'Unknown Patient',
+      bsnr: ldtData.bsnr,
+      lanr: ldtData.lanr,
+      doctorId: null,
+      assignedUsers: [],
+      assignedTo: null, // Will be set if user is found
+      ldtMessageId: ldtMessageId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      patientData: ldtData.patientData
+    };
+
+    // Try to find and assign user
+    if (ldtData.bsnr && ldtData.lanr) {
+      const user = this.findUserByBsnrLanr(ldtData.bsnr, ldtData.lanr);
+      if (user) {
+        result.assignedTo = user.email;
+        result.assignedUsers = [user.email];
+        result.doctorId = user.id;
+      }
+    }
+
+    return result;
+  },
   
   // Get results based on user role and permissions
   getResultsForUser(user) {
@@ -235,7 +468,7 @@ const mockDatabase = {
 
     switch (user.role) {
       case USER_ROLES.ADMIN:
-        // Admins can see all results
+        // Admins can see all results (including unassigned)
         return filteredResults;
         
       case USER_ROLES.LAB_TECHNICIAN:
@@ -243,9 +476,10 @@ const mockDatabase = {
         return filteredResults;
         
       case USER_ROLES.DOCTOR:
-        // Doctors can only see results assigned to them or their BSNR/LANR
+        // Doctors can only see results assigned to them or matching their BSNR/LANR
         return filteredResults.filter(result => 
-          result.bsnr === user.bsnr && result.lanr === user.lanr ||
+          result.assignedTo === user.email ||
+          (result.bsnr === user.bsnr && result.lanr === user.lanr) ||
           result.assignedUsers.includes(user.email) ||
           result.doctorId === user.id
         );
@@ -259,6 +493,50 @@ const mockDatabase = {
       default:
         return [];
     }
+  },
+
+  /**
+   * Get unassigned results (for admin review)
+   * @param {Object} user - User object
+   * @returns {Array} Array of unassigned results
+   */
+  getUnassignedResults(user) {
+    if (user.role !== USER_ROLES.ADMIN) {
+      return [];
+    }
+    
+    return this.results.filter(result => !result.assignedTo);
+  },
+
+  /**
+   * Manually assign a result to a user
+   * @param {string} resultId - Result ID
+   * @param {string} userEmail - User email to assign to
+   * @param {Object} user - Admin user making the assignment
+   * @returns {Object|null} Updated result or null if not found
+   */
+  assignResultToUser(resultId, userEmail, user) {
+    if (user.role !== USER_ROLES.ADMIN) {
+      return null;
+    }
+
+    const result = this.results.find(r => r.id === resultId);
+    if (!result) return null;
+
+    // Find the target user
+    const targetUser = userModel.getUserByEmail(userEmail);
+    if (!targetUser) return null;
+
+    // Update the result
+    result.assignedTo = userEmail;
+    result.assignedUsers = [userEmail];
+    result.doctorId = targetUser.id;
+    result.updatedAt = new Date().toISOString();
+
+    // Log the assignment
+    logger.info(`Result ${resultId} assigned to ${userEmail} by admin ${user.email}`);
+
+    return result;
   },
 
   getResultById(id, user) {
@@ -575,6 +853,14 @@ app.get('/api/results', authenticateToken, cacheMiddleware(300), asyncHandler(as
   
   const paginatedResults = results.slice(startIndex, endIndex);
   
+  // Log audit event
+  mockDatabase.logAuditEvent('RESULTS_ACCESSED', req.user, {
+    resultCount: results.length,
+    page,
+    limit,
+    ipAddress: req.ip
+  });
+  
   res.json({
     success: true,
     results: paginatedResults,
@@ -602,9 +888,106 @@ app.get('/api/results/:resultId', authenticateToken, asyncHandler(async (req, re
     });
   }
   
+  // Log audit event
+  mockDatabase.logAuditEvent('RESULT_ACCESSED', req.user, {
+    resultId,
+    patient: result.patient,
+    type: result.type,
+    ipAddress: req.ip
+  });
+  
   res.json({
     success: true,
     result
+  });
+}));
+
+// === ADMIN ENDPOINTS ===
+
+// Get unassigned results (Admin only)
+app.get('/api/admin/unassigned-results', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const unassignedResults = mockDatabase.getUnassignedResults(req.user);
+  
+  res.json({
+    success: true,
+    results: unassignedResults,
+    count: unassignedResults.length
+  });
+}));
+
+// Assign result to user (Admin only)
+app.post('/api/admin/assign-result', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { resultId, userEmail } = req.body;
+
+  if (!resultId || !userEmail) {
+    return res.status(400).json({
+      success: false,
+      message: 'Result ID and user email are required'
+    });
+  }
+
+  const updatedResult = mockDatabase.assignResultToUser(resultId, userEmail, req.user);
+  
+  if (!updatedResult) {
+    return res.status(404).json({
+      success: false,
+      message: 'Result not found or user not found'
+    });
+  }
+
+  // Log audit event
+  mockDatabase.logAuditEvent('RESULT_ASSIGNED', req.user, {
+    resultId,
+    assignedTo: userEmail,
+    patient: updatedResult.patient,
+    ipAddress: req.ip
+  });
+
+  res.json({
+    success: true,
+    message: `Result assigned to ${userEmail}`,
+    result: updatedResult
+  });
+}));
+
+// Get all users for assignment (Admin only)
+app.get('/api/admin/users', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const users = userModel.getAllUsers({ isActive: true });
+  
+  res.json({
+    success: true,
+    users: users.map(user => ({
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+      bsnr: user.bsnr,
+      lanr: user.lanr
+    }))
+  });
+}));
+
+// Get audit log (Admin only)
+app.get('/api/admin/audit-log', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 100;
+  const startIndex = (page - 1) * limit;
+  const endIndex = startIndex + limit;
+  
+  const auditLog = mockDatabase.auditLog
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    .slice(startIndex, endIndex);
+  
+  res.json({
+    success: true,
+    auditLog,
+    pagination: {
+      page,
+      limit,
+      total: mockDatabase.auditLog.length,
+      pages: Math.ceil(mockDatabase.auditLog.length / limit)
+    }
   });
 }));
 
@@ -636,7 +1019,7 @@ app.post(
       });
     }
 
-    // Persist the raw message & parsed representation – replace with real DB in production
+    // Persist the raw message & parsed representation
     const messageId = crypto.randomUUID();
     mockDatabase.addLDTMessage({
       id: messageId,
@@ -645,13 +1028,38 @@ app.post(
       parsed: parsedRecords,
     });
 
-    logger.info(`Stored inbound LDT message (${parsedRecords.length} records) under id ${messageId}`);
+    // Extract BSNR, LANR, and patient data from LDT
+    const ldtData = mockDatabase.extractLDTIdentifiers(parsedRecords);
+    
+    // Create result from LDT data
+    const newResult = mockDatabase.createResultFromLDT(ldtData, messageId);
+    
+    // Add the result to the database
+    mockDatabase.results.push(newResult);
 
-    // Respond immediately – async post-processing can be added later
+    // Log the processing
+    logger.info(`Processed LDT message ${messageId}:`, {
+      recordCount: parsedRecords.length,
+      bsnr: ldtData.bsnr,
+      lanr: ldtData.lanr,
+      patient: newResult.patient,
+      assignedTo: newResult.assignedTo,
+      resultId: newResult.id
+    });
+
+    // Respond with processing details
     res.status(202).json({
       success: true,
       messageId,
       recordCount: parsedRecords.length,
+      resultId: newResult.id,
+      bsnr: ldtData.bsnr,
+      lanr: ldtData.lanr,
+      patient: newResult.patient,
+      assignedTo: newResult.assignedTo,
+      message: newResult.assignedTo 
+        ? `Result assigned to ${newResult.assignedTo}` 
+        : 'Result created but not assigned (admin review required)'
     });
   })
 );
