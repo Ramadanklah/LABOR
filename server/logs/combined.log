@@ -190,3 +190,5 @@
 [32minfo[39m: GET /api/health - 200 - 1ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:10:16.255Z"}
 [32minfo[39m: Successful legacy login for user: doctor@laborresults.de (doctor) {"service":"lab-results-api","timestamp":"2025-07-28T21:10:20.564Z"}
 [32minfo[39m: POST /api/login - 200 - 250ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:10:20.565Z"}
+[32minfo[39m: GET /api/health - 200 - 1ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:20:25.690Z"}
+[32minfo[39m: GET /api/health - 200 - 1ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:20:33.987Z"}
