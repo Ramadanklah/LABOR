@@ -206,3 +206,10 @@
 [32minfo[39m: Received payload from Mirth Connect {"contentType":"text/plain","service":"lab-results-api","size":45,"timestamp":"2025-07-28T21:39:12.072Z"}
 [32minfo[39m: Processed LDT message 5eb51cb8-6ebe-4b2a-9bb4-7b14505a26ce: {"assignedTo":null,"bsnr":null,"lanr":null,"patient":"Unknown Patient","recordCount":1,"resultId":"res_1753738752074_mp926mx07","service":"lab-results-api","timestamp":"2025-07-28T21:39:12.074Z"}
 [32minfo[39m: POST /api/mirth-webhook - 202 - 11ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-28T21:39:12.075Z"}
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-07-30T21:30:01.106Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-07-30T21:30:01.107Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-07-30T21:30:01.108Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-07-30T21:30:01.108Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-07-30T21:30:01.108Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-07-30T21:30:01.108Z"}
+[32minfo[39m: SIGINT received, shutting down gracefully {"service":"lab-results-api","timestamp":"2025-07-30T21:45:01.340Z"}

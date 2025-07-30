@@ -93,11 +93,11 @@ const downloadLimiter = rateLimit({
 app.use('/api/', limiter);
 app.use('/api/download', downloadLimiter);
 
-// CORS configuration
+// CORS configuration - Allow all origins for Mirth Connect compatibility
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
     ? process.env.FRONTEND_URL || 'http://localhost:3000'
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    : ['http://localhost:3000', 'http://127.0.0.1:3000', '*'],
   credentials: true,
   optionsSuccessStatus: 200
 };
@@ -1140,6 +1140,15 @@ app.post('/api/admin/validate-user-data', authenticateToken, requireAdmin, async
   }
 }));
 
+// Test endpoint to verify server is running
+app.get('/api/test', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'Server is running',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Mirth Connect ingestion endpoint to accept LDT payloads
 app.post(
   '/api/mirth-webhook',
@@ -1248,10 +1257,10 @@ app.post(
 
     // Create result from JSON data
     const messageId = crypto.randomUUID();
-    const resultId = `res_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const jsonResultId = `res_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     const newResult = {
-      id: resultId,
+      id: jsonResultId,
       date: date || new Date().toISOString().slice(0, 10),
       type: type || 'JSON Import',
       status: status || 'Final',
