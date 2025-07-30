@@ -1225,7 +1225,6 @@ app.post(
 // JSON webhook endpoint for structured data from Mirth Connect
 app.post(
   '/api/webhook/json',
-  bodyParser.json({ limit: '10mb' }),
   asyncHandler(async (req, res) => {
     logger.info('Received JSON payload from Mirth Connect', {
       contentType: req.headers['content-type'],

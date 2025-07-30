@@ -213,3 +213,36 @@
 [32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-07-30T21:30:01.108Z"}
 [32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-07-30T21:30:01.108Z"}
 [32minfo[39m: SIGINT received, shutting down gracefully {"service":"lab-results-api","timestamp":"2025-07-30T21:45:01.340Z"}
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-07-30T23:17:27.264Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-07-30T23:17:27.266Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-07-30T23:17:27.266Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-07-30T23:17:27.266Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-07-30T23:17:27.266Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-07-30T23:17:27.266Z"}
+[32minfo[39m: Received payload from Mirth Connect {"contentType":"text/plain","service":"lab-results-api","size":44,"timestamp":"2025-07-30T23:17:28.370Z"}
+[32minfo[39m: Processed LDT message 2dc483f4-ad88-4158-bfbf-1d577c050064: {"assignedTo":null,"bsnr":null,"lanr":null,"patient":"Unknown Patient","recordCount":1,"resultId":"res_1753917448371_9ctn5m9lu","service":"lab-results-api","timestamp":"2025-07-30T23:17:28.371Z"}
+[32minfo[39m: POST /api/mirth-webhook - 202 - 9ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-30T23:17:28.374Z"}
+[32minfo[39m: Received payload from Mirth Connect {"contentType":"text/plain","service":"lab-results-api","size":44,"timestamp":"2025-07-30T23:18:57.103Z"}
+[32minfo[39m: Processed LDT message 990549cd-fe67-495a-bdfd-00af250546f9: {"assignedTo":null,"bsnr":null,"lanr":null,"patient":"Unknown Patient","recordCount":1,"resultId":"res_1753917537104_1il4sb83q","service":"lab-results-api","timestamp":"2025-07-30T23:18:57.104Z"}
+[32minfo[39m: POST /api/mirth-webhook - 202 - 2ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-30T23:18:57.104Z"}
+[31merror[39m: Unhandled error: stream is not readable {"service":"lab-results-api","stack":"InternalServerError: stream is not readable\n    at readStream (/workspace/server/node_modules/raw-body/index.js:185:17)\n    at getRawBody (/workspace/server/node_modules/raw-body/index.js:116:12)\n    at read (/workspace/server/node_modules/body-parser/lib/read.js:79:3)\n    at jsonParser (/workspace/server/node_modules/body-parser/lib/types/json.js:138:5)\n    at Layer.handleRequest (/workspace/server/node_modules/router/lib/layer.js:152:17)\n    at next (/workspace/server/node_modules/router/lib/route.js:157:13)\n    at Route.dispatch (/workspace/server/node_modules/router/lib/route.js:117:3)\n    at handle (/workspace/server/node_modules/router/index.js:435:11)\n    at Layer.handleRequest (/workspace/server/node_modules/router/lib/layer.js:152:17)\n    at /workspace/server/node_modules/router/index.js:295:15","timestamp":"2025-07-30T23:18:58.778Z","type":"stream.not.readable"}
+[32minfo[39m: POST /api/webhook/json - 500 - 2ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-30T23:18:58.779Z"}
+[31merror[39m: Unhandled error: stream is not readable {"service":"lab-results-api","stack":"InternalServerError: stream is not readable\n    at readStream (/workspace/server/node_modules/raw-body/index.js:185:17)\n    at getRawBody (/workspace/server/node_modules/raw-body/index.js:116:12)\n    at read (/workspace/server/node_modules/body-parser/lib/read.js:79:3)\n    at jsonParser (/workspace/server/node_modules/body-parser/lib/types/json.js:138:5)\n    at Layer.handleRequest (/workspace/server/node_modules/router/lib/layer.js:152:17)\n    at next (/workspace/server/node_modules/router/lib/route.js:157:13)\n    at Route.dispatch (/workspace/server/node_modules/router/lib/route.js:117:3)\n    at handle (/workspace/server/node_modules/router/index.js:435:11)\n    at Layer.handleRequest (/workspace/server/node_modules/router/lib/layer.js:152:17)\n    at /workspace/server/node_modules/router/index.js:295:15","timestamp":"2025-07-30T23:19:06.378Z","type":"stream.not.readable"}
+[32minfo[39m: POST /api/webhook/json - 500 - 1ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-30T23:19:06.379Z"}
+[32minfo[39m: SIGTERM received, shutting down gracefully {"service":"lab-results-api","timestamp":"2025-07-30T23:19:07.477Z"}
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-07-30T23:19:12.028Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-07-30T23:19:12.029Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-07-30T23:19:12.029Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-07-30T23:19:12.029Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-07-30T23:19:12.029Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-07-30T23:19:12.030Z"}
+[32minfo[39m: Received JSON payload from Mirth Connect {"contentType":"application/json","service":"lab-results-api","size":122,"timestamp":"2025-07-30T23:19:13.398Z"}
+[33mwarn[39m: No user found for BSNR: 987654321, LANR: 123456789 {"service":"lab-results-api","timestamp":"2025-07-30T23:19:13.398Z"}
+[32minfo[39m: POST /api/webhook/json - 404 - 4ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-30T23:19:13.401Z"}
+[32minfo[39m: Received JSON payload from Mirth Connect {"contentType":"application/json","service":"lab-results-api","size":122,"timestamp":"2025-07-30T23:19:15.646Z"}
+[33mwarn[39m: No user found for BSNR: 123456789, LANR: 987654321 {"service":"lab-results-api","timestamp":"2025-07-30T23:19:15.646Z"}
+[32minfo[39m: POST /api/webhook/json - 404 - 2ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-30T23:19:15.647Z"}
+[32minfo[39m: Received JSON payload from Mirth Connect {"contentType":"application/json","service":"lab-results-api","size":120,"timestamp":"2025-07-30T23:19:19.000Z"}
+[32minfo[39m: Processed JSON message 3c6463d2-3977-4af6-abbb-8c666985507e: {"assignedTo":"doctor@laborresults.de","bsnr":"123456789","lanr":"1234567","patient":"John Doe","resultId":"res_1753917559001_ditsm7zie","service":"lab-results-api","timestamp":"2025-07-30T23:19:19.001Z","user":"doctor@laborresults.de"}
+[32minfo[39m: AUDIT: RESULT_CREATED {"details":{"bsnr":"123456789","ipAddress":"::1","lanr":"1234567","patient":"John Doe","resultId":"res_1753917559001_ditsm7zie"},"service":"lab-results-api","timestamp":"2025-07-30T23:19:19.001Z","userEmail":"doctor@laborresults.de","userId":"user_1753917552532_wtjw6d5gm","userRole":"doctor"}
+[32minfo[39m: POST /api/webhook/json - 202 - 2ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-30T23:19:19.002Z"}

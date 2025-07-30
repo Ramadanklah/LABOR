@@ -136,7 +136,7 @@ function extractLDTIdentifiers(parsedRecords) {
   return { bsnr, lanr, patientData, labData, testData };
 }
 
-// Main transformer function
+// Main transformer function for JSON endpoint
 function transformLDTToJSON(ldtMessage) {
   try {
     // Parse LDT message
@@ -196,10 +196,10 @@ function transform(msg, channelMap, sourceMap) {
     // Get the LDT message from the incoming message
     const ldtMessage = msg.toString();
     
-    // Transform LDT to JSON
+    // For the JSON endpoint, transform LDT to JSON
     const jsonPayload = transformLDTToJSON(ldtMessage);
     
-    // Return the JSON payload
+    // Return the JSON payload for /api/webhook/json endpoint
     return JSON.stringify(jsonPayload);
     
   } catch (error) {
@@ -214,10 +214,32 @@ function transform(msg, channelMap, sourceMap) {
   }
 }
 
+// Alternative transformer for raw LDT endpoint
+function transformForRawLDT(msg, channelMap, sourceMap) {
+  try {
+    // Get the LDT message from the incoming message
+    const ldtMessage = msg.toString();
+    
+    // For the /api/mirth-webhook endpoint, return raw LDT data
+    return ldtMessage;
+    
+  } catch (error) {
+    logger.error('Raw LDT Transformer error:', error);
+    
+    // Return error response
+    return JSON.stringify({
+      error: true,
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+
 // Export for testing (if needed)
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     transform,
+    transformForRawLDT,
     transformLDTToJSON,
     parseLDT,
     extractLDTIdentifiers
