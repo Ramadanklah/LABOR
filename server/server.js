@@ -994,28 +994,63 @@ app.get('/api/admin/audit-log', authenticateToken, requireAdmin, asyncHandler(as
 // Mirth Connect ingestion endpoint to accept LDT payloads
 app.post(
   '/api/mirth-webhook',
-  bodyParser.text({ type: '*/*', limit: '10mb' }),
+  express.raw({ type: '*/*', limit: '10mb' }),
   asyncHandler(async (req, res) => {
     logger.info('Received payload from Mirth Connect', {
       contentType: req.headers['content-type'],
       size: req.body ? req.body.length : 0,
     });
 
+    // Handle different content types
+    let ldtPayload;
+    const rawBody = req.body.toString('utf8');
+    
+    if (req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
+      // Handle JSON payload - extract LDT data from JSON structure
+      try {
+        const jsonBody = JSON.parse(rawBody);
+        ldtPayload = jsonBody.data || jsonBody.payload || jsonBody.content || jsonBody.message || jsonBody.ldt || rawBody;
+        // If we extracted from JSON, we need to unescape the newlines and ensure it's a string
+        if (ldtPayload !== rawBody) {
+          ldtPayload = String(ldtPayload).replace(/\\n/g, '\n');
+        }
+      } catch (error) {
+        // If JSON parsing fails, treat as raw text
+        ldtPayload = rawBody;
+      }
+    } else {
+      // Handle text/plain payload
+      ldtPayload = rawBody;
+    }
+
     // Basic validation – we expect a non-empty string
-    if (!req.body || typeof req.body !== 'string' || req.body.trim().length === 0) {
+    if (!ldtPayload || typeof ldtPayload !== 'string' || ldtPayload.trim().length === 0) {
       return res.status(400).json({
         success: false,
         message: 'No valid LDT payload detected',
+        receivedType: typeof req.body,
+        contentType: req.headers['content-type']
       });
     }
 
     // Parse the LDT payload into individual records
-    const parsedRecords = parseLDT(req.body);
+    const parsedRecords = parseLDT(ldtPayload);
+    
+    // Debug logging
+    logger.info('LDT parsing debug:', {
+      originalPayload: ldtPayload,
+      parsedRecordsCount: parsedRecords.length,
+      parsedRecords: parsedRecords
+    });
 
     if (parsedRecords.length === 0) {
       return res.status(422).json({
         success: false,
         message: 'Unable to parse any LDT records',
+        debug: {
+          originalPayload: ldtPayload,
+          parsedRecordsCount: parsedRecords.length
+        }
       });
     }
 
@@ -1024,7 +1059,7 @@ app.post(
     mockDatabase.addLDTMessage({
       id: messageId,
       receivedAt: new Date().toISOString(),
-      raw: req.body,
+      raw: ldtPayload,
       parsed: parsedRecords,
     });
 
@@ -1039,6 +1074,103 @@ app.post(
 
     // Log the processing
     logger.info(`Processed LDT message ${messageId}:`, {
+      recordCount: parsedRecords.length,
+      bsnr: ldtData.bsnr,
+      lanr: ldtData.lanr,
+      patient: newResult.patient,
+      assignedTo: newResult.assignedTo,
+      resultId: newResult.id
+    });
+
+    // Respond with processing details
+    res.status(202).json({
+      success: true,
+      messageId,
+      recordCount: parsedRecords.length,
+      resultId: newResult.id,
+      bsnr: ldtData.bsnr,
+      lanr: ldtData.lanr,
+      patient: newResult.patient,
+      assignedTo: newResult.assignedTo,
+      message: newResult.assignedTo 
+        ? `Result assigned to ${newResult.assignedTo}` 
+        : 'Result created but not assigned (admin review required)'
+    });
+  })
+);
+
+// Alternative route for Mirth Connect with different path structure
+app.post(
+  '/api/mirth/webhook',
+  express.raw({ type: '*/*', limit: '10mb' }),
+  asyncHandler(async (req, res) => {
+    logger.info('Received payload from Mirth Connect (alternative route)', {
+      contentType: req.headers['content-type'],
+      size: req.body ? req.body.length : 0,
+    });
+
+    // Handle different content types
+    let ldtPayload;
+    const rawBody = req.body.toString('utf8');
+    
+    if (req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
+      // Handle JSON payload - extract LDT data from JSON structure
+      try {
+        const jsonBody = JSON.parse(rawBody);
+        ldtPayload = jsonBody.data || jsonBody.payload || jsonBody.content || jsonBody.message || jsonBody.ldt || rawBody;
+        // If we extracted from JSON, we need to unescape the newlines
+        if (ldtPayload !== rawBody) {
+          ldtPayload = ldtPayload.replace(/\\n/g, '\n');
+        }
+      } catch (error) {
+        // If JSON parsing fails, treat as raw text
+        ldtPayload = rawBody;
+      }
+    } else {
+      // Handle text/plain payload
+      ldtPayload = rawBody;
+    }
+
+    // Basic validation – we expect a non-empty string
+    if (!ldtPayload || typeof ldtPayload !== 'string' || ldtPayload.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid LDT payload detected',
+        receivedType: typeof req.body,
+        contentType: req.headers['content-type']
+      });
+    }
+
+    // Parse the LDT payload into individual records
+    const parsedRecords = parseLDT(ldtPayload);
+
+    if (parsedRecords.length === 0) {
+      return res.status(422).json({
+        success: false,
+        message: 'Unable to parse any LDT records',
+      });
+    }
+
+    // Persist the raw message & parsed representation
+    const messageId = crypto.randomUUID();
+    mockDatabase.addLDTMessage({
+      id: messageId,
+      receivedAt: new Date().toISOString(),
+      raw: ldtPayload,
+      parsed: parsedRecords,
+    });
+
+    // Extract BSNR, LANR, and patient data from LDT
+    const ldtData = mockDatabase.extractLDTIdentifiers(parsedRecords);
+    
+    // Create result from LDT data
+    const newResult = mockDatabase.createResultFromLDT(ldtData, messageId);
+    
+    // Add the result to the database
+    mockDatabase.results.push(newResult);
+
+    // Log the processing
+    logger.info(`Processed LDT message ${messageId} (alternative route):`, {
       recordCount: parsedRecords.length,
       bsnr: ldtData.bsnr,
       lanr: ldtData.lanr,
