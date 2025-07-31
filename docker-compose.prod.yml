@@ -1,63 +1,37 @@
 version: '3.8'
 
 services:
-  # Main application
-  app:
-    build:
-      context: .
-      target: production
-      dockerfile: Dockerfile
-    ports:
-      - "5000:5000"
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=postgresql://labuser:${DB_PASSWORD}@postgres:5432/lab_results
-      - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - app_logs:/app/logs
-      - app_uploads:/app/uploads
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: laborresults_db_prod
     restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-laborresults_prod}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+      - ./scripts:/scripts
+    ports:
+      - "127.0.0.1:5432:5432"  # Only bind to localhost
     networks:
-      - lab_network
+      - laborresults_network
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-laborresults_prod}"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
-
-  # PostgreSQL database
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_DB=lab_results
-      - POSTGRES_USER=labuser
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    restart: unless-stopped
-    networks:
-      - lab_network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U labuser -d lab_results"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      start_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /var/run/postgresql
     command: >
       postgres
-      -c shared_preload_libraries=pg_stat_statements
-      -c pg_stat_statements.track=all
       -c max_connections=100
       -c shared_buffers=256MB
       -c effective_cache_size=1GB
@@ -65,127 +39,206 @@ services:
       -c checkpoint_completion_target=0.9
       -c wal_buffers=16MB
       -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+      -c max_worker_processes=8
+      -c max_parallel_workers_per_gather=4
+      -c max_parallel_workers=8
+      -c max_parallel_maintenance_workers=4
+      -c log_destination=stderr
+      -c log_statement=all
+      -c log_duration=on
+      -c log_line_prefix='%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+      -c log_checkpoints=on
+      -c log_connections=on
+      -c log_disconnections=on
+      -c log_lock_waits=on
 
-  # Redis cache
+  # Redis for session storage and caching
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
+    container_name: laborresults_redis_prod
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --appendonly yes
+      --appendfsync everysec
+      --auto-aof-rewrite-percentage 100
+      --auto-aof-rewrite-min-size 64mb
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
-      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
-    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"  # Only bind to localhost
     networks:
-      - lab_network
+      - laborresults_network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
       retries: 3
-      start_period: 30s
-    command: redis-server /usr/local/etc/redis/redis.conf
+    security_opt:
+      - no-new-privileges:true
 
-  # Nginx reverse proxy and load balancer
+  # Node.js Application
+  app:
+    build:
+      context: ./server
+      dockerfile: ../Dockerfile
+      target: production
+    container_name: laborresults_app_prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-laborresults_prod}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      PORT: 5000
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      JWT_SECRET: ${JWT_SECRET}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      FROM_EMAIL: ${FROM_EMAIL}
+      FROM_NAME: ${FROM_NAME}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      MIRTH_WEBHOOK_SECRET: ${MIRTH_WEBHOOK_SECRET}
+      MIRTH_ALLOWED_IPS: ${MIRTH_ALLOWED_IPS}
+      LOG_LEVEL: ${LOG_LEVEL:-warn}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-100}
+      SENSITIVE_ENDPOINT_RATE_LIMIT: ${SENSITIVE_ENDPOINT_RATE_LIMIT:-5}
+    volumes:
+      - app_logs:/app/logs
+      - app_uploads:/app/uploads
+      - ./backups:/backups:ro  # Read-only access to backups
+    ports:
+      - "${HOST_PORT:-5000}:5000"
+    networks:
+      - laborresults_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    user: "node"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.cache
+
+  # NGINX Reverse Proxy
   nginx:
     image: nginx:alpine
+    container_name: laborresults_nginx_prod
+    restart: unless-stopped
+    depends_on:
+      - app
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./ssl:/etc/nginx/ssl:ro
       - nginx_logs:/var/log/nginx
-    depends_on:
-      - app
-    restart: unless-stopped
     networks:
-      - lab_network
+      - laborresults_network
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+    security_opt:
+      - no-new-privileges:true
 
-  # Monitoring with Prometheus
+  # Backup Service
+  backup:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.backup
+    container_name: laborresults_backup_prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-laborresults_prod}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      BACKUP_LOCATION: /backups
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 2 * * *}
+    volumes:
+      - ./backups:/backups
+      - backup_logs:/var/log/backup
+    networks:
+      - laborresults_network
+    security_opt:
+      - no-new-privileges:true
+    command: crond -f -l 2
+
+  # Log aggregator
+  fluentd:
+    image: fluent/fluentd:edge-debian
+    container_name: laborresults_logs_prod
+    restart: unless-stopped
+    volumes:
+      - ./fluentd/fluent.conf:/fluentd/etc/fluent.conf:ro
+      - app_logs:/app/logs:ro
+      - nginx_logs:/nginx/logs:ro
+      - backup_logs:/backup/logs:ro
+      - fluentd_logs:/var/log/fluentd
+    networks:
+      - laborresults_network
+    depends_on:
+      - app
+      - nginx
+    security_opt:
+      - no-new-privileges:true
+
+  # Monitoring
   prometheus:
     image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
+    container_name: laborresults_prometheus_prod
+    restart: unless-stopped
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"  # Only bind to localhost
+    networks:
+      - laborresults_network
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
-      - '--storage.tsdb.retention.time=15d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
       - '--web.enable-lifecycle'
-    restart: unless-stopped
-    networks:
-      - lab_network
+    security_opt:
+      - no-new-privileges:true
 
-  # Grafana dashboard
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
-      - GF_INSTALL_PLUGINS=grafana-piechart-panel
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
-    depends_on:
-      - prometheus
-    restart: unless-stopped
-    networks:
-      - lab_network
-
-  # Log aggregation with Loki
-  loki:
-    image: grafana/loki:latest
-    ports:
-      - "3100:3100"
-    volumes:
-      - ./monitoring/loki-config.yml:/etc/loki/local-config.yaml:ro
-      - loki_data:/tmp/loki
-    restart: unless-stopped
-    networks:
-      - lab_network
-
-  # Log shipping with Promtail
-  promtail:
-    image: grafana/promtail:latest
-    volumes:
-      - ./monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
-      - app_logs:/var/log/app:ro
-      - nginx_logs:/var/log/nginx:ro
-    depends_on:
-      - loki
-    restart: unless-stopped
-    networks:
-      - lab_network
-
-  # Database backup service
-  backup:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-    volumes:
-      - ./backups:/backups
-      - ./scripts/backup.sh:/backup.sh:ro
-    entrypoint: |
-      sh -c '
-        echo "0 2 * * * /backup.sh" | crontab -
-        crond -f
-      '
-    depends_on:
-      - postgres
-    restart: unless-stopped
-    networks:
-      - lab_network
+networks:
+  laborresults_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
 
 volumes:
   postgres_data:
@@ -198,16 +251,9 @@ volumes:
     driver: local
   nginx_logs:
     driver: local
+  backup_logs:
+    driver: local
+  fluentd_logs:
+    driver: local
   prometheus_data:
     driver: local
-  grafana_data:
-    driver: local
-  loki_data:
-    driver: local
-
-networks:
-  lab_network:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16

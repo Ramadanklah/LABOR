@@ -19,6 +19,29 @@ const parseLDT = require('./utils/ldtParser');
 const crypto = require('crypto');
 const BulkUserManager = require('./utils/bulkUserManager');
 
+// Import new security and validation modules
+const { 
+  asyncHandler, 
+  ErrorHandler, 
+  securityHeaders, 
+  requestLogger, 
+  sanitizeInput 
+} = require('./utils/errorHandler');
+const {
+  validateUserRegistration,
+  validateUserLogin,
+  validatePasswordReset,
+  validateUserUpdate,
+  validateUUIDParam,
+  validatePagination,
+  validateTwoFactor,
+  validateWebhook,
+  validateAuditQuery,
+  sensitiveEndpointLimiter
+} = require('./utils/validation');
+const GmailAuthService = require('./utils/gmailAuth');
+const WebhookSecurity = require('./utils/webhookSecurity');
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -35,8 +58,18 @@ const userModel = new UserModel();
 // Initialize email service
 const emailService = new EmailService();
 
+// Initialize Gmail authentication service
+const gmailAuthService = new GmailAuthService();
+
+// Initialize webhook security
+const webhookSecurity = new WebhookSecurity();
+
 // Initialize bulk user manager
 const bulkUserManager = new BulkUserManager(userModel);
+
+// Set up global error handlers
+ErrorHandler.uncaughtException();
+ErrorHandler.unhandledRejection();
 
 // Configure multer for file uploads
 const upload = multer({ 
@@ -73,8 +106,19 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "https:"],
     },
   },
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
 }));
+
+// Additional security headers
+app.use(securityHeaders);
+
+// Input sanitization
+app.use(sanitizeInput);
 
 app.use(compression({
   filter: (req, res) => {
@@ -88,9 +132,13 @@ app.use(compression({
 
 // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Limit each IP
-  message: 'Too many requests from this IP, please try again later.',
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (process.env.NODE_ENV === 'production' ? 100 : 1000),
+  message: {
+    success: false,
+    message: 'Too many requests from this IP, please try again later.',
+    retryAfter: Math.ceil((parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000) / 1000)
+  },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -98,20 +146,29 @@ const limiter = rateLimit({
 const downloadLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   max: 20, // Limit download requests
-  message: 'Too many download requests, please try again later.',
+  message: {
+    success: false,
+    message: 'Too many download requests, please try again later.'
+  },
   skipSuccessfulRequests: true
 });
 
+// Auth rate limiter
+const authLimiter = sensitiveEndpointLimiter(15 * 60 * 1000, parseInt(process.env.SENSITIVE_ENDPOINT_RATE_LIMIT) || 5);
+
 app.use('/api/', limiter);
 app.use('/api/download', downloadLimiter);
+app.use('/api/auth/', authLimiter);
 
-// CORS configuration - Allow all origins for Mirth Connect compatibility
+// CORS configuration
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
-    ? process.env.FRONTEND_URL || 'http://localhost:3000'
-    : ['http://localhost:3000', 'http://127.0.0.1:3000', '*'],
-  credentials: true,
-  optionsSuccessStatus: 200
+    ? (process.env.CORS_ORIGIN || process.env.FRONTEND_URL || 'http://localhost:3000').split(',')
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  credentials: process.env.CORS_CREDENTIALS === 'true' || true,
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Hub-Signature-256']
 };
 app.use(cors(corsOptions));
 
@@ -119,14 +176,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Request logging middleware
-app.use((req, res, next) => {
-  const start = Date.now();
-  res.on('finish', () => {
-    const duration = Date.now() - start;
-    logger.info(`${req.method} ${req.originalUrl} - ${res.statusCode} - ${duration}ms - User: ${req.user?.email || 'anonymous'}`);
-  });
-  next();
-});
+app.use(requestLogger);
 
 // Cache middleware
 const cacheMiddleware = (duration = 300) => (req, res, next) => {
@@ -614,8 +664,103 @@ app.post('/api/login', asyncHandler(async (req, res) => {
   }
 }));
 
+// Gmail sign-in request endpoint
+app.post('/api/auth/gmail-signin', validateUserLogin, asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  
+  try {
+    // Check if user exists with this email
+    const user = await userModel.getUserByEmail(email);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'No account found with this email address'
+      });
+    }
+
+    // Check if email verification is pending
+    if (gmailAuthService.hasPendingVerification(email)) {
+      return res.status(429).json({
+        success: false,
+        message: 'Verification code already sent. Please check your email or wait before requesting a new one.'
+      });
+    }
+
+    // Send verification code
+    await gmailAuthService.sendVerificationCode(email, 'login');
+    
+    logger.info(`Gmail verification code sent to: ${email}`);
+    
+    res.json({
+      success: true,
+      message: 'Verification code sent to your email address',
+      email: email
+    });
+  } catch (error) {
+    logger.error('Gmail signin error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send verification code'
+    });
+  }
+}));
+
+// Gmail sign-in verification endpoint
+app.post('/api/auth/gmail-verify', asyncHandler(async (req, res) => {
+  const { email, code } = req.body;
+  const ipAddress = req.ip || req.connection.remoteAddress;
+  const userAgent = req.headers['user-agent'];
+
+  if (!email || !code) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email and verification code are required'
+    });
+  }
+
+  try {
+    // Verify the code
+    const verificationResult = gmailAuthService.verifyCode(email, code);
+    
+    if (!verificationResult.success) {
+      return res.status(400).json({
+        success: false,
+        message: verificationResult.message
+      });
+    }
+
+    // Get user and create session
+    const user = await userModel.getUserByEmail(email);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Create JWT token and session
+    const authResult = await userModel.createUserSession(user, ipAddress, userAgent);
+    
+    logger.info(`Successful Gmail login for user: ${user.email} (${user.role})`);
+    
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token: authResult.token,
+      user: authResult.user,
+      requiresSetup2FA: user.mustSetup2FA && !user.isTwoFactorEnabled
+    });
+  } catch (error) {
+    logger.error('Gmail verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Verification failed'
+    });
+  }
+}));
+
 // Enhanced login endpoint with 2FA support
-app.post('/api/auth/login', asyncHandler(async (req, res) => {
+app.post('/api/auth/login', validateUserLogin, asyncHandler(async (req, res) => {
   const { email, password, otp } = req.body;
   const ipAddress = req.ip || req.connection.remoteAddress;
   const userAgent = req.headers['user-agent'];
@@ -1218,7 +1363,13 @@ app.get('/api/test', (req, res) => {
 // Mirth Connect ingestion endpoint to accept LDT payloads
 app.post(
   '/api/mirth-webhook',
+  ...webhookSecurity.secureWebhook({ 
+    verifySignature: process.env.NODE_ENV === 'production',
+    secret: process.env.MIRTH_WEBHOOK_SECRET 
+  }),
   bodyParser.text({ type: '*/*', limit: '10mb' }),
+  webhookSecurity.logWebhookActivity(),
+  webhookSecurity.validateWebhookPayload([]),
   asyncHandler(async (req, res) => {
     logger.info('Received payload from Mirth Connect', {
       contentType: req.headers['content-type'],
@@ -1291,6 +1442,12 @@ app.post(
 // JSON webhook endpoint for structured data from Mirth Connect
 app.post(
   '/api/webhook/json',
+  ...webhookSecurity.secureWebhook({ 
+    verifySignature: process.env.NODE_ENV === 'production',
+    secret: process.env.MIRTH_WEBHOOK_SECRET 
+  }),
+  webhookSecurity.logWebhookActivity(),
+  validateWebhook,
   asyncHandler(async (req, res) => {
     logger.info('Received JSON payload from Mirth Connect', {
       contentType: req.headers['content-type'],
@@ -2172,12 +2329,10 @@ app.get('/api/dashboard', authenticateToken, asyncHandler(async (req, res) => {
 }));
 
 // 404 handler
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'Route not found'
-  });
-});
+app.use(ErrorHandler.notFound);
+
+// Global error handler
+app.use(ErrorHandler.handle);
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
