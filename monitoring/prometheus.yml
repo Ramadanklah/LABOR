@@ -1,0 +1,73 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "rules/*.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Lab Results Application
+  - job_name: 'lab-results-app'
+    static_configs:
+      - targets: ['app:5000']
+    metrics_path: '/api/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Node.js Application Metrics
+  - job_name: 'nodejs'
+    static_configs:
+      - targets: ['app:5000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # PostgreSQL Database
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+    scrape_interval: 30s
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    scrape_interval: 30s
+
+  # Application Health Checks
+  - job_name: 'health-checks'
+    static_configs:
+      - targets: ['app:5000']
+    metrics_path: '/api/health'
+    scrape_interval: 60s
+
+  # Docker Container Metrics
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['docker.for.mac.localhost:9323']
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+
+  # System Metrics (if using node-exporter)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+
+  # Custom Application Metrics
+  - job_name: 'custom-metrics'
+    static_configs:
+      - targets: ['app:5000']
+    metrics_path: '/api/custom-metrics'
+    scrape_interval: 60s
+    scrape_timeout: 30s

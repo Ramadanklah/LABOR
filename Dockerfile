@@ -43,9 +43,9 @@ COPY server/ ./
 # Production stage
 FROM node:18-alpine AS production
 
-# Install security updates
+# Install security updates and essential packages
 RUN apk update && apk upgrade && \
-    apk add --no-cache dumb-init && \
+    apk add --no-cache dumb-init curl && \
     addgroup -g 1001 -S nodejs && \
     adduser -S appuser -u 1001
 
@@ -58,8 +58,9 @@ COPY --from=frontend-builder --chown=appuser:nodejs /app/client/dist ./client/di
 # Copy backend from builder stage
 COPY --from=backend-builder --chown=appuser:nodejs /app/server ./server
 
-# Create logs directory
-RUN mkdir -p /app/logs && chown appuser:nodejs /app/logs
+# Create necessary directories
+RUN mkdir -p /app/logs /app/uploads /app/backups && \
+    chown -R appuser:nodejs /app/logs /app/uploads /app/backups
 
 # Switch to non-root user
 USER appuser
@@ -67,13 +68,14 @@ USER appuser
 # Set environment variables
 ENV NODE_ENV=production
 ENV PORT=5000
+ENV HOST=0.0.0.0
 
 # Expose port
 EXPOSE 5000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:5000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+  CMD curl -f http://localhost:5000/api/health || exit 1
 
 # Start application with dumb-init for proper signal handling
 ENTRYPOINT ["dumb-init", "--"]
@@ -83,3 +85,5 @@ CMD ["node", "server/server.js"]
 LABEL maintainer="Lab Results System"
 LABEL version="1.0.0"
 LABEL description="Production-ready laboratory results management system"
+LABEL org.opencontainers.image.source="https://github.com/your-org/lab-results-system"
+LABEL org.opencontainers.image.licenses="MIT"
