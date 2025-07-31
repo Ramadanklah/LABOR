@@ -11,7 +11,10 @@ const path = require('path');
 const LDTGenerator = require('./utils/ldtGenerator');
 const PDFGenerator = require('./utils/pdfGenerator');
 const { UserModel, USER_ROLES, ROLE_PERMISSIONS } = require('./models/User');
+const EmailService = require('./utils/emailService');
 const bodyParser = require('body-parser');
+const multer = require('multer');
+const csvParser = require('csv-parser');
 const parseLDT = require('./utils/ldtParser');
 const crypto = require('crypto');
 const BulkUserManager = require('./utils/bulkUserManager');
@@ -29,8 +32,17 @@ const cache = new NodeCache({
 // Initialize user model
 const userModel = new UserModel();
 
+// Initialize email service
+const emailService = new EmailService();
+
 // Initialize bulk user manager
 const bulkUserManager = new BulkUserManager(userModel);
+
+// Configure multer for file uploads
+const upload = multer({ 
+  dest: 'uploads/',
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 
 // Configure logger
 const logger = winston.createLogger({
@@ -142,7 +154,7 @@ const asyncHandler = (fn) => (req, res, next) => {
 };
 
 // Enhanced authentication middleware
-const authenticateToken = (req, res, next) => {
+const authenticateToken = asyncHandler(async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -154,8 +166,8 @@ const authenticateToken = (req, res, next) => {
   }
 
   try {
-    const decoded = userModel.verifyToken(token);
-    const user = userModel.getUserById(decoded.userId);
+    const decoded = await userModel.verifyToken(token);
+    const user = await userModel.getUserById(decoded.userId);
     
     if (!user) {
       return res.status(403).json({ 
@@ -172,6 +184,8 @@ const authenticateToken = (req, res, next) => {
     }
 
     req.user = user;
+    req.userAgent = req.headers['user-agent'];
+    req.ipAddress = req.ip || req.connection.remoteAddress;
     next();
   } catch (error) {
     res.status(403).json({ 
@@ -179,7 +193,7 @@ const authenticateToken = (req, res, next) => {
       message: 'Invalid or expired token' 
     });
   }
-};
+});
 
 // Permission middleware
 const requirePermission = (permission) => (req, res, next) => {
@@ -602,18 +616,20 @@ app.post('/api/login', asyncHandler(async (req, res) => {
 
 // Enhanced login endpoint with 2FA support
 app.post('/api/auth/login', asyncHandler(async (req, res) => {
-  const { email, password, bsnr, lanr, otp } = req.body;
+  const { email, password, otp } = req.body;
+  const ipAddress = req.ip || req.connection.remoteAddress;
+  const userAgent = req.headers['user-agent'];
 
   // Input validation
-  if ((!email && (!bsnr || !lanr)) || !password) {
+  if (!email || !password) {
     return res.status(400).json({
       success: false,
-      message: 'Email or BSNR/LANR and password are required'
+      message: 'Email and password are required'
     });
   }
 
   try {
-    const authResult = await userModel.authenticateUser(email, password, bsnr, lanr, otp);
+    const authResult = await userModel.authenticateUser(email, password, otp, ipAddress, userAgent);
     
     logger.info(`Successful login for user: ${authResult.user.email} (${authResult.user.role})`);
     
@@ -621,10 +637,11 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
       success: true,
       message: 'Login successful',
       token: authResult.token,
-      user: authResult.user
+      user: authResult.user,
+      requiresSetup2FA: authResult.requiresSetup2FA || false
     });
   } catch (error) {
-    logger.warn(`Failed login attempt: ${email || `${bsnr}/${lanr}`} - ${error.message}`);
+    logger.warn(`Failed login attempt: ${email} - ${error.message}`);
     
     res.status(401).json({
       success: false,
@@ -641,22 +658,30 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
   });
 });
 
-// Logout endpoint (client-side token invalidation)
-app.post('/api/auth/logout', authenticateToken, (req, res) => {
+// Logout endpoint with session invalidation
+app.post('/api/auth/logout', authenticateToken, asyncHandler(async (req, res) => {
+  const token = req.headers['authorization'].split(' ')[1];
+  await userModel.logout(token, req.user.id, req.ipAddress, req.userAgent);
+  
   logger.info(`User logged out: ${req.user.email}`);
   res.json({
     success: true,
     message: 'Logged out successfully'
   });
-});
+}));
 
 // --- TWO-FACTOR AUTHENTICATION ROUTES ---
 
 // Generate a new 2FA secret for the authenticated user
 app.post('/api/auth/setup-2fa', authenticateToken, asyncHandler(async (req, res) => {
   try {
-    const { otpauthUrl, base32 } = userModel.generateTwoFactorSecret(req.user.id);
-    res.json({ success: true, otpauthUrl, secret: base32 });
+    const result = await userModel.setup2FA(req.user.id);
+    res.json({ 
+      success: true, 
+      otpauthUrl: result.otpauthUrl, 
+      secret: result.secret,
+      qrCode: result.qrCode
+    });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -671,8 +696,49 @@ app.post('/api/auth/verify-2fa', authenticateToken, asyncHandler(async (req, res
   }
 
   try {
-    userModel.verifyAndEnableTwoFactor(req.user.id, token);
-    res.json({ success: true, message: 'Two-factor authentication enabled successfully' });
+    const result = await userModel.verify2FA(req.user.id, token);
+    
+    // Send notification email
+    try {
+      await emailService.send2FAEnabledNotification(
+        req.user.email, 
+        `${req.user.firstName} ${req.user.lastName}`
+      );
+    } catch (emailError) {
+      logger.warn('Failed to send 2FA notification email:', emailError);
+    }
+    
+    res.json({ 
+      success: true, 
+      message: 'Two-factor authentication enabled successfully',
+      backupCodes: result.backupCodes
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+}));
+
+// Disable 2FA (Admin or self)
+app.post('/api/auth/disable-2fa', authenticateToken, asyncHandler(async (req, res) => {
+  const { userId } = req.body;
+  
+  // Users can disable their own 2FA, admins can disable any user's 2FA
+  if (userId && userId !== req.user.id && !userModel.hasPermission(req.user, 'canManageUsers')) {
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Insufficient permissions' 
+    });
+  }
+  
+  const targetUserId = userId || req.user.id;
+  
+  try {
+    await userModel.disable2FA(targetUserId, req.user.id);
+    
+    res.json({ 
+      success: true, 
+      message: 'Two-factor authentication disabled successfully' 
+    });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
@@ -1511,6 +1577,599 @@ app.use((error, req, res, next) => {
     ...(process.env.NODE_ENV !== 'production' && { stack: error.stack })
   });
 });
+
+// === ENHANCED USER MANAGEMENT ENDPOINTS ===
+
+// Email verification endpoint
+app.get('/api/auth/verify-email', asyncHandler(async (req, res) => {
+  const { token } = req.query;
+  
+  if (!token) {
+    return res.status(400).json({
+      success: false,
+      message: 'Verification token required'
+    });
+  }
+  
+  try {
+    await userModel.verifyEmail(token);
+    res.json({
+      success: true,
+      message: 'Email verified successfully'
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
+// Password reset request
+app.post('/api/auth/forgot-password', asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email address required'
+    });
+  }
+  
+  try {
+    const result = await userModel.generatePasswordResetToken(email);
+    
+    if (result.resetToken) {
+      // Send password reset email
+      await emailService.sendPasswordResetEmail(
+        result.userEmail,
+        result.userName,
+        result.resetToken
+      );
+    }
+    
+    // Always return success to prevent email enumeration
+    res.json({
+      success: true,
+      message: 'If the email exists, a password reset link has been sent'
+    });
+  } catch (error) {
+    logger.error('Password reset error:', error);
+    res.json({
+      success: true,
+      message: 'If the email exists, a password reset link has been sent'
+    });
+  }
+}));
+
+// Password reset with token
+app.post('/api/auth/reset-password', asyncHandler(async (req, res) => {
+  const { token, newPassword } = req.body;
+  
+  if (!token || !newPassword) {
+    return res.status(400).json({
+      success: false,
+      message: 'Reset token and new password required'
+    });
+  }
+  
+  if (newPassword.length < 8) {
+    return res.status(400).json({
+      success: false,
+      message: 'Password must be at least 8 characters long'
+    });
+  }
+  
+  try {
+    await userModel.resetPassword(token, newPassword);
+    res.json({
+      success: true,
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
+// Enhanced user creation with email notifications
+app.post('/api/admin/users', authenticateToken, requirePermission('canCreateUsers'), asyncHandler(async (req, res) => {
+  const { sendEmail = true, ...userData } = req.body;
+  
+  try {
+    const newUser = await userModel.createUser(userData, req.user.id);
+    
+    // Send welcome email if requested and user needs email verification
+    if (sendEmail && newUser.activationToken) {
+      try {
+        await emailService.sendWelcomeEmail(
+          newUser.email,
+          `${newUser.firstName} ${newUser.lastName}`,
+          userData.password, // Send original password before hashing
+          newUser.activationToken
+        );
+      } catch (emailError) {
+        logger.warn('Failed to send welcome email:', emailError);
+      }
+    }
+    
+    logger.info(`New user created: ${newUser.email} (${newUser.role}) by ${req.user.email}`);
+    
+    res.status(201).json({
+      success: true,
+      message: 'User created successfully',
+      user: newUser,
+      emailSent: sendEmail && newUser.activationToken
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
+// Enhanced user listing with pagination
+app.get('/api/admin/users', authenticateToken, requirePermission('canViewAllUsers'), asyncHandler(async (req, res) => {
+  const { role, isActive, search, page = 1, limit = 50 } = req.query;
+  
+  const filters = {};
+  if (role) filters.role = role;
+  if (isActive !== undefined) filters.isActive = isActive === 'true';
+  if (search) filters.search = search;
+  
+  const pagination = {
+    page: parseInt(page),
+    limit: parseInt(limit)
+  };
+  
+  try {
+    const result = await userModel.getAllUsers(filters, pagination);
+    const stats = await userModel.getUserStats();
+    
+    res.json({
+      success: true,
+      ...result,
+      stats
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
+// Bulk user operations
+app.post('/api/admin/users/bulk', authenticateToken, requirePermission('canCreateUsers'), upload.single('csvFile'), asyncHandler(async (req, res) => {
+  const { operation } = req.body;
+  
+  if (operation === 'import' && req.file) {
+    const fs = require('fs');
+    const users = [];
+    const errors = [];
+    
+    try {
+      const stream = fs.createReadStream(req.file.path)
+        .pipe(csvParser());
+      
+      for await (const row of stream) {
+        try {
+          const userData = {
+            email: row.email,
+            firstName: row.firstName,
+            lastName: row.lastName,
+            role: row.role,
+            bsnr: row.bsnr,
+            lanr: row.lanr,
+            password: row.password || Math.random().toString(36).slice(-12) // Generate random password if not provided
+          };
+          
+          const newUser = await userModel.createUser(userData, req.user.id);
+          users.push(newUser);
+          
+          // Send welcome email
+          try {
+            await emailService.sendWelcomeEmail(
+              newUser.email,
+              `${newUser.firstName} ${newUser.lastName}`,
+              userData.password,
+              newUser.activationToken
+            );
+          } catch (emailError) {
+            logger.warn(`Failed to send welcome email to ${newUser.email}:`, emailError);
+          }
+          
+        } catch (error) {
+          errors.push({
+            row: row,
+            error: error.message
+          });
+        }
+      }
+      
+      // Clean up uploaded file
+      fs.unlinkSync(req.file.path);
+      
+      res.json({
+        success: true,
+        message: `Imported ${users.length} users successfully`,
+        imported: users.length,
+        errors: errors.length,
+        errorDetails: errors
+      });
+      
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  } else {
+    res.status(400).json({
+      success: false,
+      message: 'Invalid operation or missing CSV file'
+    });
+  }
+}));
+
+// Admin password reset (bypass token)
+app.post('/api/admin/users/:userId/reset-password', authenticateToken, requirePermission('canResetPasswords'), asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const { newPassword, sendEmail = true } = req.body;
+  
+  if (!newPassword) {
+    return res.status(400).json({
+      success: false,
+      message: 'New password required'
+    });
+  }
+  
+  try {
+    const user = await userModel.getUserById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    await userModel.updateUser(userId, { password: newPassword }, req.user.id);
+    
+    // Send notification email
+    if (sendEmail) {
+      try {
+        // Generate a temporary reset token for the email link
+        const resetResult = await userModel.generatePasswordResetToken(user.email);
+        if (resetResult.resetToken) {
+          await emailService.sendPasswordResetEmail(
+            user.email,
+            `${user.firstName} ${user.lastName}`,
+            resetResult.resetToken
+          );
+        }
+      } catch (emailError) {
+        logger.warn('Failed to send password reset notification:', emailError);
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
+// Get audit logs
+app.get('/api/admin/audit-logs', authenticateToken, requirePermission('canViewAnalytics'), asyncHandler(async (req, res) => {
+  const { userId, action, startDate, endDate, page = 1, limit = 50 } = req.query;
+  
+  const filters = {};
+  if (userId) filters.userId = userId;
+  if (action) filters.action = action;
+  if (startDate) filters.startDate = startDate;
+  if (endDate) filters.endDate = endDate;
+  
+  const pagination = {
+    page: parseInt(page),
+    limit: parseInt(limit)
+  };
+  
+  try {
+    const result = await userModel.getAuditLogs(filters, pagination);
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
+// User dashboard data endpoint
+app.get('/api/dashboard', authenticateToken, asyncHandler(async (req, res) => {
+  try {
+    const dashboardData = {
+      user: req.user,
+      notifications: [],
+      recentActivity: [],
+      stats: {}
+    };
+    
+    // Role-specific dashboard data
+    if (userModel.hasPermission(req.user, 'canViewAnalytics')) {
+      dashboardData.stats = await userModel.getUserStats();
+      
+      // Recent audit logs
+      const auditResult = await userModel.getAuditLogs({}, { page: 1, limit: 10 });
+      dashboardData.recentActivity = auditResult.logs;
+    }
+    
+    // Check if user needs to set up 2FA
+    if (req.user.mustSetup2FA && !req.user.isTwoFactorEnabled) {
+      dashboardData.notifications.push({
+        type: 'warning',
+        title: 'Security Setup Required',
+        message: 'You must set up Two-Factor Authentication to secure your account.',
+        action: 'setup-2fa'
+      });
+    }
+    
+    res.json({
+      success: true,
+      dashboard: dashboardData
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
+// === ENHANCED USER MANAGEMENT ENDPOINTS ===
+
+// Email verification endpoint
+app.get('/api/auth/verify-email', asyncHandler(async (req, res) => {
+  const { token } = req.query;
+  
+  if (!token) {
+    return res.status(400).json({
+      success: false,
+      message: 'Verification token required'
+    });
+  }
+  
+  try {
+    await userModel.verifyEmail(token);
+    res.json({
+      success: true,
+      message: 'Email verified successfully'
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
+// Password reset request
+app.post('/api/auth/forgot-password', asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email address required'
+    });
+  }
+  
+  try {
+    const result = await userModel.generatePasswordResetToken(email);
+    
+    if (result.resetToken) {
+      // Send password reset email
+      await emailService.sendPasswordResetEmail(
+        result.userEmail,
+        result.userName,
+        result.resetToken
+      );
+    }
+    
+    // Always return success to prevent email enumeration
+    res.json({
+      success: true,
+      message: 'If the email exists, a password reset link has been sent'
+    });
+  } catch (error) {
+    logger.error('Password reset error:', error);
+    res.json({
+      success: true,
+      message: 'If the email exists, a password reset link has been sent'
+    });
+  }
+}));
+
+// Password reset with token
+app.post('/api/auth/reset-password', asyncHandler(async (req, res) => {
+  const { token, newPassword } = req.body;
+  
+  if (!token || !newPassword) {
+    return res.status(400).json({
+      success: false,
+      message: 'Reset token and new password required'
+    });
+  }
+  
+  if (newPassword.length < 8) {
+    return res.status(400).json({
+      success: false,
+      message: 'Password must be at least 8 characters long'
+    });
+  }
+  
+  try {
+    await userModel.resetPassword(token, newPassword);
+    res.json({
+      success: true,
+      message: 'Password reset successfully'
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
+// Enhanced user creation with email notifications
+app.post('/api/admin/users', authenticateToken, requirePermission('canCreateUsers'), asyncHandler(async (req, res) => {
+  const { sendEmail = true, ...userData } = req.body;
+  
+  try {
+    const newUser = await userModel.createUser(userData, req.user.id);
+    
+    // Send welcome email if requested and user needs email verification
+    if (sendEmail && newUser.activationToken) {
+      try {
+        await emailService.sendWelcomeEmail(
+          newUser.email,
+          `${newUser.firstName} ${newUser.lastName}`,
+          userData.password, // Send original password before hashing
+          newUser.activationToken
+        );
+      } catch (emailError) {
+        logger.warn('Failed to send welcome email:', emailError);
+      }
+    }
+    
+    logger.info(`New user created: ${newUser.email} (${newUser.role}) by ${req.user.email}`);
+    
+    res.status(201).json({
+      success: true,
+      message: 'User created successfully',
+      user: newUser,
+      emailSent: sendEmail && newUser.activationToken
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
+// Enhanced user listing with pagination
+app.get('/api/admin/users', authenticateToken, requirePermission('canViewAllUsers'), asyncHandler(async (req, res) => {
+  const { role, isActive, search, page = 1, limit = 50 } = req.query;
+  
+  const filters = {};
+  if (role) filters.role = role;
+  if (isActive !== undefined) filters.isActive = isActive === 'true';
+  if (search) filters.search = search;
+  
+  const pagination = {
+    page: parseInt(page),
+    limit: parseInt(limit)
+  };
+  
+  try {
+    const result = await userModel.getAllUsers(filters, pagination);
+    const stats = await userModel.getUserStats();
+    
+    res.json({
+      success: true,
+      ...result,
+      stats
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
+// Get audit logs
+app.get('/api/admin/audit-logs', authenticateToken, requirePermission('canViewAnalytics'), asyncHandler(async (req, res) => {
+  const { userId, action, startDate, endDate, page = 1, limit = 50 } = req.query;
+  
+  const filters = {};
+  if (userId) filters.userId = userId;
+  if (action) filters.action = action;
+  if (startDate) filters.startDate = startDate;
+  if (endDate) filters.endDate = endDate;
+  
+  const pagination = {
+    page: parseInt(page),
+    limit: parseInt(limit)
+  };
+  
+  try {
+    const result = await userModel.getAuditLogs(filters, pagination);
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
+// User dashboard data endpoint
+app.get('/api/dashboard', authenticateToken, asyncHandler(async (req, res) => {
+  try {
+    const dashboardData = {
+      user: req.user,
+      notifications: [],
+      recentActivity: [],
+      stats: {}
+    };
+    
+    // Role-specific dashboard data
+    if (userModel.hasPermission(req.user, 'canViewAnalytics')) {
+      dashboardData.stats = await userModel.getUserStats();
+      
+      // Recent audit logs
+      const auditResult = await userModel.getAuditLogs({}, { page: 1, limit: 10 });
+      dashboardData.recentActivity = auditResult.logs;
+    }
+    
+    // Check if user needs to set up 2FA
+    if (req.user.mustSetup2FA && !req.user.isTwoFactorEnabled) {
+      dashboardData.notifications.push({
+        type: 'warning',
+        title: 'Security Setup Required',
+        message: 'You must set up Two-Factor Authentication to secure your account.',
+        action: 'setup-2fa'
+      });
+    }
+    
+    res.json({
+      success: true,
+      dashboard: dashboardData
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
 
 // 404 handler
 app.use((req, res) => {

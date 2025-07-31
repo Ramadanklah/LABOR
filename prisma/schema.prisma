@@ -19,7 +19,44 @@ model User {
   isActive           Boolean  @default(true)
   isTwoFactorEnabled Boolean  @default(false)
   twoFactorSecret    String?
+  backupCodes        String[] // Array of backup codes for 2FA recovery
+  mustSetup2FA       Boolean  @default(true) // Force 2FA setup on first login
+  passwordResetToken String?
+  passwordResetExpires DateTime?
+  activationToken    String?
+  activationExpires  DateTime?
+  isEmailVerified    Boolean  @default(false)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   lastLogin          DateTime?
+  createdBy          String? // Admin who created this user
+  
+  // Relations
+  auditLogs          AuditLog[]
+  sessions           UserSession[]
+}
+
+model UserSession {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  isActive  Boolean  @default(true)
+  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String   // LOGIN, LOGOUT, USER_CREATED, ROLE_CHANGED, etc.
+  details   Json?    // Additional details about the action
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 }
