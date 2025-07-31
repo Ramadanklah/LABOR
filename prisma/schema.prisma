@@ -34,6 +34,16 @@ model User {
   // Relations
   auditLogs          AuditLog[]
   sessions           UserSession[]
+
+  // Indexes for performance
+  @@index([email])
+  @@index([bsnr])
+  @@index([lanr])
+  @@index([bsnr, lanr])
+  @@index([role])
+  @@index([isActive])
+  @@index([createdAt])
+  @@index([lastLogin])
 }
 
 model UserSession {
@@ -47,6 +57,13 @@ model UserSession {
   isActive  Boolean  @default(true)
   
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Indexes for performance
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@index([isActive])
+  @@index([createdAt])
 }
 
 model AuditLog {
@@ -59,4 +76,10 @@ model AuditLog {
   createdAt DateTime @default(now())
   
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Indexes for performance
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@index([ipAddress])
 }
