@@ -198,10 +198,7 @@ const cacheMiddleware = (duration = 300) => (req, res, next) => {
   next();
 };
 
-// Async error handler
-const asyncHandler = (fn) => (req, res, next) => {
-  Promise.resolve(fn(req, res, next)).catch(next);
-};
+// Async error handler is imported from utils/errorHandler
 
 // Enhanced authentication middleware
 const authenticateToken = asyncHandler(async (req, res, next) => {
