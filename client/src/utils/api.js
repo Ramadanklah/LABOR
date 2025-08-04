@@ -5,10 +5,15 @@ class APIClient {
     this.cache = new Map();
     this.requestInterceptors = [];
     this.responseInterceptors = [];
+    this.pendingRequests = new Map(); // For request deduplication
     this.defaultOptions = {
       headers: {
         'Content-Type': 'application/json',
       },
+    };
+    this.cacheConfig = {
+      defaultTTL: 300000, // 5 minutes
+      maxSize: 100, // Maximum cache entries
     };
   }
 
@@ -40,25 +45,75 @@ class APIClient {
     return modifiedResponse;
   }
 
-  // Cache key generator
+  // Cache key generator with better hashing
   getCacheKey(url, options) {
-    return `${options.method || 'GET'}-${url}-${JSON.stringify(options.body || {})}`;
+    const method = options.method || 'GET';
+    const body = options.body ? JSON.stringify(options.body) : '';
+    const params = options.params ? JSON.stringify(options.params) : '';
+    return `${method}-${url}-${body}-${params}`;
   }
 
-  // Retry logic with exponential backoff
+  // Request deduplication
+  async deduplicateRequest(cacheKey, requestFn) {
+    if (this.pendingRequests.has(cacheKey)) {
+      return this.pendingRequests.get(cacheKey);
+    }
+
+    const promise = requestFn();
+    this.pendingRequests.set(cacheKey, promise);
+
+    try {
+      const result = await promise;
+      return result;
+    } finally {
+      this.pendingRequests.delete(cacheKey);
+    }
+  }
+
+  // Optimized cache management
+  setCache(key, data, ttl = this.cacheConfig.defaultTTL) {
+    // Implement LRU cache eviction
+    if (this.cache.size >= this.cacheConfig.maxSize) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
+
+    this.cache.set(key, {
+      data,
+      timestamp: Date.now(),
+      ttl,
+    });
+  }
+
+  getCache(key) {
+    const cached = this.cache.get(key);
+    if (!cached) return null;
+
+    const isExpired = Date.now() - cached.timestamp > cached.ttl;
+    if (isExpired) {
+      this.cache.delete(key);
+      return null;
+    }
+
+    return cached.data;
+  }
+
+  // Retry logic with exponential backoff and jitter
   async retry(fn, retries = 3, delay = 1000) {
     try {
       return await fn();
     } catch (error) {
       if (retries > 0 && error.status >= 500) {
-        await new Promise(resolve => setTimeout(resolve, delay));
+        // Add jitter to prevent thundering herd
+        const jitter = Math.random() * 100;
+        await new Promise(resolve => setTimeout(resolve, delay + jitter));
         return this.retry(fn, retries - 1, delay * 2);
       }
       throw error;
     }
   }
 
-  // Main request method
+  // Main request method with optimizations
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
     const mergedOptions = {
@@ -76,13 +131,13 @@ class APIClient {
     // Check cache for GET requests
     const cacheKey = this.getCacheKey(url, finalOptions);
     if (finalOptions.method === 'GET' || !finalOptions.method) {
-      const cached = this.cache.get(cacheKey);
-      if (cached && Date.now() - cached.timestamp < (finalOptions.cacheTimeout || 300000)) {
-        return cached.data;
+      const cached = this.getCache(cacheKey);
+      if (cached) {
+        return cached;
       }
     }
 
-    // Make request with retry logic
+    // Make request with deduplication and retry logic
     const makeRequest = async () => {
       const response = await fetch(url, finalOptions);
       
@@ -108,7 +163,9 @@ class APIClient {
       return response;
     };
 
-    const response = await this.retry(makeRequest);
+    const response = await this.deduplicateRequest(cacheKey, () => 
+      this.retry(makeRequest)
+    );
     const processedResponse = await this.applyResponseInterceptors(response);
     
     // Parse response
@@ -120,12 +177,10 @@ class APIClient {
       data = await processedResponse.text();
     }
 
-    // Cache GET requests
+    // Cache GET requests with configurable TTL
     if (finalOptions.method === 'GET' || !finalOptions.method) {
-      this.cache.set(cacheKey, {
-        data,
-        timestamp: Date.now(),
-      });
+      const ttl = finalOptions.cacheTimeout || this.cacheConfig.defaultTTL;
+      this.setCache(cacheKey, data, ttl);
     }
 
     return data;
@@ -156,7 +211,7 @@ class APIClient {
     return this.request(endpoint, { ...options, method: 'DELETE' });
   }
 
-  // Download with progress tracking
+  // Download with progress tracking and optimization
   async download(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
     const finalOptions = await this.applyRequestInterceptors(url, {
@@ -175,15 +230,34 @@ class APIClient {
     return response;
   }
 
-  // Clear cache
-  clearCache() {
-    this.cache.clear();
+  // Clear cache with selective clearing
+  clearCache(pattern = null) {
+    if (pattern) {
+      // Clear specific cache entries matching pattern
+      for (const key of this.cache.keys()) {
+        if (key.includes(pattern)) {
+          this.cache.delete(key);
+        }
+      }
+    } else {
+      // Clear all cache
+      this.cache.clear();
+    }
   }
 
   // Clear specific cache entry
   clearCacheEntry(endpoint, options = {}) {
     const cacheKey = this.getCacheKey(`${this.baseURL}${endpoint}`, options);
     this.cache.delete(cacheKey);
+  }
+
+  // Get cache statistics
+  getCacheStats() {
+    return {
+      size: this.cache.size,
+      maxSize: this.cacheConfig.maxSize,
+      pendingRequests: this.pendingRequests.size,
+    };
   }
 }
 

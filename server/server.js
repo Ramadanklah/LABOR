@@ -18,17 +18,19 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Initialize cache with 1 hour TTL and check period every 10 minutes
+// Initialize cache with optimized settings
 const cache = new NodeCache({ 
-  stdTTL: 3600, 
-  checkperiod: 600,
-  useClones: false // Better performance for large objects
+  stdTTL: 3600, // 1 hour default TTL
+  checkperiod: 600, // Check every 10 minutes
+  useClones: false, // Better performance for large objects
+  maxKeys: 1000, // Maximum cache entries
+  deleteOnExpire: true, // Automatically delete expired entries
 });
 
 // Initialize user model
 const userModel = new UserModel();
 
-// Configure logger
+// Configure logger with performance optimizations
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: winston.format.combine(
@@ -39,15 +41,24 @@ const logger = winston.createLogger({
   ),
   defaultMeta: { service: 'lab-results-api' },
   transports: [
-    new winston.transports.File({ filename: 'logs/error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'logs/combined.log' }),
+    new winston.transports.File({ 
+      filename: 'logs/error.log', 
+      level: 'error',
+      maxsize: 5242880, // 5MB
+      maxFiles: 5,
+    }),
+    new winston.transports.File({ 
+      filename: 'logs/combined.log',
+      maxsize: 5242880, // 5MB
+      maxFiles: 5,
+    }),
     new winston.transports.Console({
       format: winston.format.simple()
     })
   ],
 });
 
-// Production-ready middleware
+// Production-ready middleware with optimizations
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -57,76 +68,135 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "https:"],
     },
   },
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  // Optimize for performance
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
 }));
 
+// Optimized compression with better settings
 app.use(compression({
   filter: (req, res) => {
-    if (req.headers['x-no-compression']) {
+    // Don't compress small responses or already compressed content
+    if (req.headers['x-no-compression'] || 
+        req.headers['content-encoding'] ||
+        req.headers['content-length'] < 1024) {
       return false;
     }
     return compression.filter(req, res);
   },
-  threshold: 1024 // Only compress responses larger than 1KB
+  threshold: 1024, // Only compress responses larger than 1KB
+  level: 6, // Balanced compression level
+  memLevel: 8, // Memory usage for compression
 }));
 
-// Rate limiting
+// Rate limiting with different strategies
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Limit each IP
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: false,
+  skipFailedRequests: false,
 });
 
 const downloadLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
   max: 20, // Limit download requests
   message: 'Too many download requests, please try again later.',
-  skipSuccessfulRequests: true
+  skipSuccessfulRequests: true,
+  skipFailedRequests: false,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit login attempts
+  message: 'Too many login attempts, please try again later.',
+  skipSuccessfulRequests: true,
+  skipFailedRequests: false,
 });
 
 app.use('/api/', limiter);
 app.use('/api/download', downloadLimiter);
+app.use('/api/auth/login', authLimiter);
 
-// CORS configuration
+// CORS configuration with optimizations
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' 
     ? process.env.FRONTEND_URL || 'http://localhost:3000'
     : ['http://localhost:3000', 'http://127.0.0.1:3000'],
   credentials: true,
-  optionsSuccessStatus: 200
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  maxAge: 86400, // Cache preflight requests for 24 hours
 };
 app.use(cors(corsOptions));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Optimized body parsing
+app.use(express.json({ 
+  limit: '10mb',
+  strict: true,
+  type: 'application/json'
+}));
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: '10mb',
+  parameterLimit: 1000
+}));
 
-// Request logging middleware
+// Request logging middleware with performance tracking
 app.use((req, res, next) => {
   const start = Date.now();
-  res.on('finish', () => {
+  const originalSend = res.send;
+  
+  res.send = function(data) {
     const duration = Date.now() - start;
-    logger.info(`${req.method} ${req.originalUrl} - ${res.statusCode} - ${duration}ms - User: ${req.user?.email || 'anonymous'}`);
-  });
+    const size = Buffer.byteLength(data, 'utf8');
+    
+    logger.info(`${req.method} ${req.originalUrl} - ${res.statusCode} - ${duration}ms - ${size}bytes - User: ${req.user?.email || 'anonymous'}`);
+    
+    // Add performance headers
+    res.set('X-Response-Time', `${duration}ms`);
+    res.set('X-Response-Size', `${size}bytes`);
+    
+    return originalSend.call(this, data);
+  };
+  
   next();
 });
 
-// Cache middleware
+// Enhanced cache middleware with better performance
 const cacheMiddleware = (duration = 300) => (req, res, next) => {
+  // Skip cache for non-GET requests or when cache is disabled
+  if (req.method !== 'GET' || req.headers['x-no-cache']) {
+    return next();
+  }
+  
   const key = `${req.originalUrl}-${req.user?.userId || 'anonymous'}`;
   const cached = cache.get(key);
   
   if (cached) {
     logger.debug(`Cache hit for ${key}`);
+    res.set('X-Cache', 'HIT');
     return res.json(cached);
   }
   
-  res.sendResponse = res.json;
-  res.json = (body) => {
-    cache.set(key, body, duration);
-    logger.debug(`Cache set for ${key}`);
-    res.sendResponse(body);
+  // Override res.json to cache the response
+  const originalJson = res.json;
+  res.json = function(body) {
+    // Only cache successful responses
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      cache.set(key, body, duration);
+      logger.debug(`Cache set for ${key} (${duration}s)`);
+    }
+    
+    res.set('X-Cache', 'MISS');
+    return originalJson.call(this, body);
   };
   
   next();
