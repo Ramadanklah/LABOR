@@ -277,3 +277,14 @@
 [32minfo[39m: Received payload from Mirth Connect {"contentType":"application/json","service":"lab-results-api","timestamp":"2025-07-30T21:28:28.185Z"}
 [32minfo[39m: LDT parsing debug: {"originalPayload":"[object Object]","parsedRecords":[],"parsedRecordsCount":0,"service":"lab-results-api","timestamp":"2025-07-30T21:28:28.185Z"}
 [32minfo[39m: POST /api/mirth-webhook - 422 - 4ms - User: anonymous {"service":"lab-results-api","timestamp":"2025-07-30T21:28:28.188Z"}
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-08-04T22:56:11.677Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-08-04T22:56:11.679Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-08-04T22:56:11.679Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-08-04T22:56:11.679Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-08-04T22:56:11.679Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-08-04T22:56:11.679Z"}
+[32minfo[39m: Received payload from Mirth Connect {"contentType":"text/plain","service":"lab-results-api","size":7,"timestamp":"2025-08-04T22:56:16.356Z"}
+[32minfo[39m: LDT parsing debug: {"originalPayload":"Test123","parsedRecords":[],"parsedRecordsCount":0,"service":"lab-results-api","timestamp":"2025-08-04T22:56:16.357Z"}
+[32minfo[39m: POST /api/mirth-webhook - 422 - 3ms - 122bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-04T22:56:16.357Z"}
+[32minfo[39m: Received payload from Mirth Connect (alternative route) {"contentType":"text/plain","service":"lab-results-api","size":14,"timestamp":"2025-08-04T22:56:18.138Z"}
+[32minfo[39m: POST /api/mirth/webhook - 422 - 1ms - 61bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-04T22:56:18.139Z"}
