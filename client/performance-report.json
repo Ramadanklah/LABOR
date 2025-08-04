@@ -1,0 +1,19 @@
+{
+  "timestamp": "2025-08-04T22:04:14.201Z",
+  "bundle": {
+    "totalSize": 6142,
+    "gzipSize": 0
+  },
+  "loading": {
+    "firstContentfulPaint": 1245.587075994705,
+    "largestContentfulPaint": 1739.924815799905,
+    "firstInputDelay": 85.71087848142649,
+    "cumulativeLayoutShift": 0.0811481823478762
+  },
+  "caching": {
+    "hitRate": 0.85,
+    "responseTime": 50,
+    "memoryUsage": 15
+  },
+  "recommendations": []
+}

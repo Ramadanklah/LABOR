@@ -1,10 +1,12 @@
-import React, { useState, useEffect, Suspense } from 'react';
-import LoginPage from './components/LoginPage.jsx';
-import ResultsDashboard from './components/ResultsDashboard.jsx';
-import UserManagement from './components/UserManagement.jsx';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import apiClient from './utils/api.js';
 import performanceMonitor from './utils/performance.js';
 import './App.css';
+
+// Lazy load large components for better performance
+const LoginPage = lazy(() => import('./components/LoginPage.jsx'));
+const ResultsDashboard = lazy(() => import('./components/ResultsDashboard.jsx'));
+const UserManagement = lazy(() => import('./components/UserManagement.jsx'));
 
 // Error Boundary Component
 class AppErrorBoundary extends React.Component {
