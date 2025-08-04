@@ -1070,6 +1070,9 @@ app.post(
       contentType: req.headers['content-type'],
       size: req.body ? req.body.length : 0,
     });
+    
+    // Debug: Log the actual content for troubleshooting
+    logger.info('Raw payload content:', req.body.toString());
 
     // Handle different content types
     let ldtPayload;
@@ -1178,6 +1181,9 @@ app.post(
       contentType: req.headers['content-type'],
       size: req.body ? req.body.length : 0,
     });
+    
+    // Debug: Log the actual content for troubleshooting
+    logger.info('Raw payload content (alternative route):', req.body.toString());
 
     // Handle different content types
     let ldtPayload;
