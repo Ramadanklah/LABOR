@@ -95,13 +95,13 @@ const Navigation = ({ currentUser, currentView, onViewChange, onLogout }) => {
       id: 'dashboard', 
       name: 'Dashboard', 
       icon: '📊', 
-      allowedRoles: ['admin', 'doctor', 'lab_technician', 'patient'] 
+      allowedRoles: ['ADMIN', 'DOCTOR', 'LABTECH', 'PATIENT'] 
     },
     { 
       id: 'users', 
       name: 'User Management', 
       icon: '👥', 
-      allowedRoles: ['admin'] 
+      allowedRoles: ['ADMIN'] 
     }
   ];
 

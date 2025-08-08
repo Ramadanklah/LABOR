@@ -2,12 +2,8 @@ import React, { useState } from 'react';
 import apiClient from '../utils/api.js';
 
 function LoginPage({ onLoginSuccess, onError }) {
-  const [loginMethod, setLoginMethod] = useState('email'); // 'email' or 'bsnr'
   const [email, setEmail] = useState('');
-  const [bsnr, setBsnr] = useState('');
-  const [lanr, setLanr] = useState('');
   const [password, setPassword] = useState('');
-  const [otp, setOtp] = useState('');
   const [message, setMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
@@ -17,57 +13,27 @@ function LoginPage({ onLoginSuccess, onError }) {
     setIsLoading(true);
 
     try {
-      const loginData = {
-        password,
-        ...(loginMethod === 'email' ? { email } : { bsnr, lanr }),
-        ...(otp ? { otp } : {})
-      };
-
-      console.log('Login attempt with data:', { ...loginData, password: '[HIDDEN]' }); // Debug log
-      const response = await apiClient.post('/auth/login', loginData);
-      console.log('Login response:', response); // Debug log
-      
+      const response = await apiClient.post('/auth/login', { email, password });
       if (response.success) {
         setMessage(response.message);
-        // Store token and user info
         localStorage.setItem('authToken', response.token);
         localStorage.setItem('userInfo', JSON.stringify(response.user));
-        
-        if (onLoginSuccess) {
-          onLoginSuccess(response.token, response.user);
-        }
+        if (onLoginSuccess) onLoginSuccess(response.token, response.user);
       } else {
         setMessage(response.message || 'Login failed');
       }
     } catch (error) {
-      console.error('Login error:', error);
       const errorMessage = error.message || 'Network error or server unavailable';
       setMessage(errorMessage);
-      
-      if (onError) {
-        onError(new Error(errorMessage));
-      }
+      if (onError) onError(new Error(errorMessage));
     } finally {
       setIsLoading(false);
     }
   };
 
-  const demoUsers = [
-    { label: 'Admin', email: 'admin@laborresults.de', password: 'admin123', role: 'Administrator' },
-    { label: 'Doctor', email: 'doctor@laborresults.de', password: 'doctor123', role: 'Doctor' },
-    { label: 'Lab Tech', email: 'lab@laborresults.de', password: 'lab123', role: 'Lab Technician' }
-  ];
-
-  const fillDemo = (user) => {
-    setLoginMethod('email');
-    setEmail(user.email);
-    setPassword(user.password);
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
-        {/* Header */}
         <div>
           <div className="mx-auto h-12 w-12 flex items-center justify-center rounded-full bg-indigo-100">
             <svg className="h-6 w-6 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -82,90 +48,23 @@ function LoginPage({ onLoginSuccess, onError }) {
           </p>
         </div>
 
-        {/* Login Form */}
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="bg-white p-6 rounded-lg shadow-md">
-            {/* Login Method Selector */}
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Login Method
+            <div className="mb-4">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                Email Address
               </label>
-              <div className="flex space-x-4">
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="loginMethod"
-                    value="email"
-                    checked={loginMethod === 'email'}
-                    onChange={(e) => setLoginMethod(e.target.value)}
-                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">Email</span>
-                </label>
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="loginMethod"
-                    value="bsnr"
-                    checked={loginMethod === 'bsnr'}
-                    onChange={(e) => setLoginMethod(e.target.value)}
-                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">BSNR/LANR</span>
-                </label>
-              </div>
+              <input
+                type="email"
+                id="email"
+                className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                placeholder="Enter your email address"
+              />
             </div>
 
-            {/* Conditional Input Fields */}
-            {loginMethod === 'email' ? (
-              <div className="mb-4">
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  id="email"
-                  className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required={loginMethod === 'email'}
-                  placeholder="Enter your email address"
-                />
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label htmlFor="bsnr" className="block text-sm font-medium text-gray-700 mb-2">
-                    BSNR
-                  </label>
-                  <input
-                    type="text"
-                    id="bsnr"
-                    className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3"
-                    value={bsnr}
-                    onChange={(e) => setBsnr(e.target.value)}
-                    required={loginMethod === 'bsnr'}
-                    placeholder="BSNR"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="lanr" className="block text-sm font-medium text-gray-700 mb-2">
-                    LANR
-                  </label>
-                  <input
-                    type="text"
-                    id="lanr"
-                    className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3"
-                    value={lanr}
-                    onChange={(e) => setLanr(e.target.value)}
-                    required={loginMethod === 'bsnr'}
-                    placeholder="LANR"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Password Field */}
             <div className="mb-6">
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
                 Password
@@ -181,22 +80,6 @@ function LoginPage({ onLoginSuccess, onError }) {
               />
             </div>
 
-            {/* OTP Field - visible when user has 2FA enabled (optional input) */}
-            <div className="mb-6">
-              <label htmlFor="otp" className="block text-sm font-medium text-gray-700 mb-2">
-                2-Factor Code (if enabled)
-              </label>
-              <input
-                type="text"
-                id="otp"
-                className="shadow-sm focus:ring-indigo-500 focus:border-indigo-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-                placeholder="123456"
-              />
-            </div>
-
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={isLoading}
@@ -212,7 +95,6 @@ function LoginPage({ onLoginSuccess, onError }) {
               )}
             </button>
 
-            {/* Message Display */}
             {message && (
               <div className={`mt-4 p-3 rounded-md text-sm ${
                 message.includes('successful') || message.includes('Login successful')
@@ -225,29 +107,6 @@ function LoginPage({ onLoginSuccess, onError }) {
           </div>
         </form>
 
-        {/* Demo Users Section */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="bg-white p-4 rounded-lg shadow-md">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Demo Users (Development)</h3>
-            <div className="grid grid-cols-1 gap-2">
-              {demoUsers.map((user, index) => (
-                <button
-                  key={index}
-                  onClick={() => fillDemo(user)}
-                  className="text-left p-2 text-xs bg-gray-50 hover:bg-gray-100 rounded border transition-colors duration-150"
-                >
-                  <div className="font-medium text-gray-800">{user.label} - {user.role}</div>
-                  <div className="text-gray-600">{user.email}</div>
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-gray-500 mt-2">
-              Click any demo user to auto-fill login credentials
-            </p>
-          </div>
-        )}
-
-        {/* Footer */}
         <div className="text-center">
           <p className="text-xs text-gray-500">
             Laboratory Results Management System

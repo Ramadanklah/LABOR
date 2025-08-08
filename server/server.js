@@ -10,7 +10,8 @@ const winston = require('winston');
 const path = require('path');
 const LDTGenerator = require('./utils/ldtGenerator');
 const PDFGenerator = require('./utils/pdfGenerator');
-const { UserModel, USER_ROLES, ROLE_PERMISSIONS } = require('./models/User');
+const jwt = require('jsonwebtoken');
+const userService = require('./services/userService');
 const bodyParser = require('body-parser');
 const parseLDT = require('./utils/ldtParser');
 const crypto = require('crypto');
@@ -27,8 +28,61 @@ const cache = new NodeCache({
   deleteOnExpire: true, // Automatically delete expired entries
 });
 
-// Initialize user model
-const userModel = new UserModel();
+// JWT helpers
+function verifyToken(token) {
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) throw new Error('JWT_SECRET is not set');
+  return jwt.verify(token, jwtSecret);
+}
+
+function signToken(payload) {
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) throw new Error('JWT_SECRET is not set');
+  const expiresIn = process.env.JWT_EXPIRATION || '24h';
+  return jwt.sign(payload, jwtSecret, { expiresIn });
+}
+
+// Auth middleware
+const authenticateToken = async (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ success: false, message: 'Access token required' });
+  try {
+    const decoded = verifyToken(token);
+    const user = await userService.getUserById(decoded.sub || decoded.userId);
+    if (!user) return res.status(403).json({ success: false, message: 'User not found' });
+    req.user = user;
+    next();
+  } catch (err) {
+    return res.status(403).json({ success: false, message: 'Invalid or expired token' });
+  }
+};
+
+// RBAC middleware
+const requireRole = (roles) => (req, res, next) => {
+  if (!req.user || !roles.includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'Insufficient permissions' });
+  }
+  next();
+};
+
+// Remove in-memory UserModel usage
+// const { UserModel, USER_ROLES, ROLE_PERMISSIONS } = require('./models/User');
+// const userModel = new UserModel();
+
+const USER_ROLES = {
+  ADMIN: 'ADMIN',
+  DOCTOR: 'DOCTOR',
+  LABTECH: 'LABTECH',
+  PATIENT: 'PATIENT',
+};
+
+const ROLE_PERMISSIONS = {
+  ADMIN: {},
+  DOCTOR: {},
+  LABTECH: {},
+  PATIENT: {},
+};
 
 // Configure logger with performance optimizations
 const logger = winston.createLogger({
@@ -177,7 +231,7 @@ const cacheMiddleware = (duration = 300) => (req, res, next) => {
     return next();
   }
   
-  const key = `${req.originalUrl}-${req.user?.userId || 'anonymous'}`;
+  const key = `${req.originalUrl}-${req.user?.id || 'anonymous'}`;
   const cached = cache.get(key);
   
   if (cached) {
@@ -205,76 +259,6 @@ const cacheMiddleware = (duration = 300) => (req, res, next) => {
 // Async error handler
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
-};
-
-// Enhanced authentication middleware
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Access token required' 
-    });
-  }
-
-  try {
-    const decoded = userModel.verifyToken(token);
-    const user = userModel.getUserById(decoded.userId);
-    
-    if (!user) {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'User not found' 
-      });
-    }
-
-    if (!user.isActive) {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'User account is disabled' 
-      });
-    }
-
-    req.user = user;
-    next();
-  } catch (error) {
-    res.status(403).json({ 
-      success: false, 
-      message: 'Invalid or expired token' 
-    });
-  }
-};
-
-// Permission middleware
-const requirePermission = (permission) => (req, res, next) => {
-  if (!req.user) {
-    return res.status(401).json({
-      success: false,
-      message: 'Authentication required'
-    });
-  }
-
-  if (!userModel.hasPermission(req.user, permission)) {
-    return res.status(403).json({
-      success: false,
-      message: 'Insufficient permissions'
-    });
-  }
-
-  next();
-};
-
-// Admin only middleware
-const requireAdmin = (req, res, next) => {
-  if (!req.user || req.user.role !== USER_ROLES.ADMIN) {
-    return res.status(403).json({
-      success: false,
-      message: 'Admin access required'
-    });
-  }
-  next();
 };
 
 // Mock database with enhanced data isolation and LDT matching
@@ -490,7 +474,7 @@ const mockDatabase = {
     if (!bsnr || !lanr) return null;
     
     // Use the userModel to find the user
-    return userModel.getUserByBsnrLanr(bsnr, lanr);
+    return userService.getUserByBsnrLanr(bsnr, lanr);
   },
 
   /**
@@ -541,7 +525,7 @@ const mockDatabase = {
         // Admins can see all results (including unassigned)
         return filteredResults;
         
-      case USER_ROLES.LAB_TECHNICIAN:
+      case USER_ROLES.LABTECH:
         // Lab technicians can see all results
         return filteredResults;
         
@@ -594,7 +578,7 @@ const mockDatabase = {
     if (!result) return null;
 
     // Find the target user
-    const targetUser = userModel.getUserByEmail(userEmail);
+    const targetUser = userService.getUserByEmail(userEmail);
     if (!targetUser) return null;
 
     // Update the result
@@ -628,128 +612,108 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     version: process.env.npm_package_version || '1.0.0',
-    userStats: userModel.getUserStats()
+    userStats: userService.getUserStats()
   });
 });
 
 // === AUTHENTICATION ROUTES ===
 
-// Legacy login endpoint for backward compatibility
-app.post('/api/login', asyncHandler(async (req, res) => {
-  const { bsnr, lanr, password } = req.body;
-
-  // Input validation
-  if (!bsnr || !lanr || !password) {
-    return res.status(400).json({
-      success: false,
-      message: 'BSNR, LANR, and password are required'
-    });
-  }
-
-  try {
-    const authResult = await userModel.authenticateUser(null, password, bsnr, lanr);
-    
-    logger.info(`Successful legacy login for user: ${authResult.user.email} (${authResult.user.role})`);
-    
-    res.json({
-      success: true,
-      message: 'Login successful',
-      token: authResult.token
-    });
-  } catch (error) {
-    logger.warn(`Failed legacy login attempt: ${bsnr}/${lanr} - ${error.message}`);
-    
-    res.status(401).json({
-      success: false,
-      message: 'Invalid credentials'
-    });
-  }
-}));
-
 // Enhanced login endpoint with 2FA support
 app.post('/api/auth/login', asyncHandler(async (req, res) => {
-  const { email, password, bsnr, lanr, otp } = req.body;
+  const { email, password } = req.body;
 
-  // Input validation
-  if ((!email && (!bsnr || !lanr)) || !password) {
+  if (!email || !password) {
     return res.status(400).json({
       success: false,
-      message: 'Email or BSNR/LANR and password are required'
+      message: 'Email and password are required'
     });
   }
 
   try {
-    const authResult = await userModel.authenticateUser(email, password, bsnr, lanr, otp);
-    
-    logger.info(`Successful login for user: ${authResult.user.email} (${authResult.user.role})`);
-    
+    const userRaw = await userService.getUserByEmailRaw(email);
+    if (!userRaw || !userRaw.isActive) {
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+
+    const isValid = await require('bcryptjs').compare(password, userRaw.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+
+    const token = signToken({ sub: userRaw.id, role: userRaw.role });
+
+    logger.info(`Successful login for user: ${userRaw.email} (${userRaw.role})`);
+
     res.json({
       success: true,
       message: 'Login successful',
-      token: authResult.token,
-      user: authResult.user
+      token,
+      user: await userService.getUserById(userRaw.id)
     });
   } catch (error) {
-    logger.warn(`Failed login attempt: ${email || `${bsnr}/${lanr}`} - ${error.message}`);
-    
-    res.status(401).json({
-      success: false,
-      message: error.message
-    });
+    logger.warn(`Failed login attempt: ${email} - ${error.message}`);
+    res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
 }));
 
-// Get current user info
-app.get('/api/auth/me', authenticateToken, (req, res) => {
-  res.json({
-    success: true,
-    user: req.user
-  });
-});
-
-// Logout endpoint (client-side token invalidation)
-app.post('/api/auth/logout', authenticateToken, (req, res) => {
-  logger.info(`User logged out: ${req.user.email}`);
-  res.json({
-    success: true,
-    message: 'Logged out successfully'
-  });
-});
-
-// --- TWO-FACTOR AUTHENTICATION ROUTES ---
-
-// Generate a new 2FA secret for the authenticated user
-app.post('/api/auth/setup-2fa', authenticateToken, asyncHandler(async (req, res) => {
-  try {
-    const { otpauthUrl, base32 } = userModel.generateTwoFactorSecret(req.user.id);
-    res.json({ success: true, otpauthUrl, secret: base32 });
-  } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
-  }
+// Current user
+app.get('/api/auth/me', authenticateToken, asyncHandler(async (req, res) => {
+  res.json({ success: true, user: req.user });
 }));
 
-// Verify the provided OTP and permanently enable 2FA
-app.post('/api/auth/verify-2fa', authenticateToken, asyncHandler(async (req, res) => {
-  const { token } = req.body;
+// 2FA routes (disabled/not implemented)
+app.post('/api/auth/setup-2fa', authenticateToken, (req, res) => {
+  res.status(501).json({ success: false, message: '2FA setup not implemented' });
+});
+app.post('/api/auth/verify-2fa', authenticateToken, (req, res) => {
+  res.status(501).json({ success: false, message: '2FA verification not implemented' });
+});
 
-  if (!token) {
-    return res.status(400).json({ success: false, message: 'OTP token required' });
-  }
+// Roles endpoint
+app.get('/api/roles', authenticateToken, (req, res) => {
+  const roles = [
+    { key: 'ADMIN', value: 'ADMIN' },
+    { key: 'DOCTOR', value: 'DOCTOR' },
+    { key: 'LABTECH', value: 'LABTECH' },
+    { key: 'PATIENT', value: 'PATIENT' },
+  ];
+  res.json({ success: true, roles });
+});
 
-  try {
-    userModel.verifyAndEnableTwoFactor(req.user.id, token);
-    res.json({ success: true, message: 'Two-factor authentication enabled successfully' });
-  } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
-  }
+// === ADMIN USER MANAGEMENT ROUTES ===
+app.get('/api/admin/users', authenticateToken, requireRole([USER_ROLES.ADMIN]), asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const pageSize = Math.min(parseInt(req.query.pageSize) || 25, 100);
+  const filters = {
+    role: req.query.role,
+    search: req.query.search,
+    isActive: req.query.isActive === undefined ? undefined : req.query.isActive === 'true'
+  };
+  const { total, users } = await userService.listUsers({ page, pageSize, filters });
+  res.json({ success: true, users, total, page, pageSize });
+}));
+
+app.post('/api/admin/users', authenticateToken, requireRole([USER_ROLES.ADMIN]), asyncHandler(async (req, res) => {
+  const user = await userService.createUser(req.body);
+  res.status(201).json({ success: true, user });
+}));
+
+app.put('/api/admin/users/:id', authenticateToken, requireRole([USER_ROLES.ADMIN]), asyncHandler(async (req, res) => {
+  const user = await userService.updateUser(req.params.id, req.body);
+  res.json({ success: true, user });
+}));
+
+app.delete('/api/admin/users/:id', authenticateToken, requireRole([USER_ROLES.ADMIN]), asyncHandler(async (req, res) => {
+  await userService.deleteUser(req.params.id);
+  res.json({ success: true });
 }));
 
 // === USER MANAGEMENT ROUTES ===
 
 // Create new user (Admin only)
-app.post('/api/users', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+app.post('/api/users', authenticateToken, requireRole([USER_ROLES.ADMIN]), asyncHandler(async (req, res) => {
   try {
-    const newUser = await userModel.createUser(req.body);
+    const newUser = await userService.createUser(req.body);
     
     logger.info(`New user created: ${newUser.email} (${newUser.role}) by ${req.user.email}`);
     
@@ -767,7 +731,7 @@ app.post('/api/users', authenticateToken, requireAdmin, asyncHandler(async (req,
 }));
 
 // Get all users (Admin only)
-app.get('/api/users', authenticateToken, requireAdmin, (req, res) => {
+app.get('/api/users', authenticateToken, requireRole([USER_ROLES.ADMIN]), (req, res) => {
   const { role, isActive, search } = req.query;
   
   const filters = {};
@@ -775,13 +739,13 @@ app.get('/api/users', authenticateToken, requireAdmin, (req, res) => {
   if (isActive !== undefined) filters.isActive = isActive === 'true';
   if (search) filters.search = search;
   
-  const users = userModel.getAllUsers(filters);
+  const users = userService.getAllUsers(filters);
   
   res.json({
     success: true,
     users,
     total: users.length,
-    stats: userModel.getUserStats()
+    stats: userService.getUserStats()
   });
 });
 
@@ -797,7 +761,7 @@ app.get('/api/users/:userId', authenticateToken, asyncHandler(async (req, res) =
     });
   }
   
-  const user = userModel.getUserById(userId);
+  const user = userService.getUserById(userId);
   
   if (!user) {
     return res.status(404).json({
@@ -839,7 +803,7 @@ app.put('/api/users/:userId', authenticateToken, asyncHandler(async (req, res) =
   }
   
   try {
-    const updatedUser = await userModel.updateUser(userId, updates);
+    const updatedUser = await userService.updateUser(userId, updates);
     
     logger.info(`User updated: ${updatedUser.email} by ${req.user.email}`);
     
@@ -857,7 +821,7 @@ app.put('/api/users/:userId', authenticateToken, asyncHandler(async (req, res) =
 }));
 
 // Delete user (Admin only)
-app.delete('/api/users/:userId', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+app.delete('/api/users/:userId', authenticateToken, requireRole([USER_ROLES.ADMIN]), asyncHandler(async (req, res) => {
   const { userId } = req.params;
   
   // Prevent admin from deleting themselves
@@ -869,7 +833,7 @@ app.delete('/api/users/:userId', authenticateToken, requireAdmin, asyncHandler(a
   }
   
   try {
-    const user = userModel.getUserById(userId);
+    const user = userService.getUserById(userId);
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -877,7 +841,7 @@ app.delete('/api/users/:userId', authenticateToken, requireAdmin, asyncHandler(a
       });
     }
     
-    userModel.deleteUser(userId);
+    userService.deleteUser(userId);
     
     logger.info(`User deleted: ${user.email} by ${req.user.email}`);
     
@@ -975,7 +939,7 @@ app.get('/api/results/:resultId', authenticateToken, asyncHandler(async (req, re
 // === ADMIN ENDPOINTS ===
 
 // Get unassigned results (Admin only)
-app.get('/api/admin/unassigned-results', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+app.get('/api/admin/unassigned-results', authenticateToken, requireRole([USER_ROLES.ADMIN]), asyncHandler(async (req, res) => {
   const unassignedResults = mockDatabase.getUnassignedResults(req.user);
   
   res.json({
@@ -986,7 +950,7 @@ app.get('/api/admin/unassigned-results', authenticateToken, requireAdmin, asyncH
 }));
 
 // Assign result to user (Admin only)
-app.post('/api/admin/assign-result', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+app.post('/api/admin/assign-result', authenticateToken, requireRole([USER_ROLES.ADMIN]), asyncHandler(async (req, res) => {
   const { resultId, userEmail } = req.body;
 
   if (!resultId || !userEmail) {
@@ -1021,8 +985,8 @@ app.post('/api/admin/assign-result', authenticateToken, requireAdmin, asyncHandl
 }));
 
 // Get all users for assignment (Admin only)
-app.get('/api/admin/users', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  const users = userModel.getAllUsers({ isActive: true });
+app.get('/api/admin/users', authenticateToken, requireRole([USER_ROLES.ADMIN]), asyncHandler(async (req, res) => {
+  const users = userService.getAllUsers({ isActive: true });
   
   res.json({
     success: true,
@@ -1039,7 +1003,7 @@ app.get('/api/admin/users', authenticateToken, requireAdmin, asyncHandler(async 
 }));
 
 // Get audit log (Admin only)
-app.get('/api/admin/audit-log', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+app.get('/api/admin/audit-log', authenticateToken, requireRole([USER_ROLES.ADMIN]), asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 100;
   const startIndex = (page - 1) * limit;
@@ -1274,7 +1238,7 @@ app.post(
 
 // Enhanced download endpoints with access control
 // Download all results as LDT
-app.get('/api/download/ldt', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
+app.get('/api/download/ldt', authenticateToken, requireRole([USER_ROLES.ADMIN, USER_ROLES.LABTECH, USER_ROLES.DOCTOR]), asyncHandler(async (req, res) => {
   try {
     const results = mockDatabase.getResultsForUser(req.user);
     const filename = `lab_results_${new Date().toISOString().slice(0, 10)}.ldt`;
@@ -1310,7 +1274,7 @@ app.get('/api/download/ldt', authenticateToken, requirePermission('canDownloadRe
 }));
 
 // Download specific result as LDT
-app.get('/api/download/ldt/:resultId', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
+app.get('/api/download/ldt/:resultId', authenticateToken, requireRole([USER_ROLES.ADMIN, USER_ROLES.LABTECH, USER_ROLES.DOCTOR]), asyncHandler(async (req, res) => {
   const { resultId } = req.params;
   
   try {
@@ -1356,7 +1320,7 @@ app.get('/api/download/ldt/:resultId', authenticateToken, requirePermission('can
 }));
 
 // Download all results as PDF
-app.get('/api/download/pdf', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
+app.get('/api/download/pdf', authenticateToken, requireRole([USER_ROLES.ADMIN, USER_ROLES.LABTECH, USER_ROLES.DOCTOR]), asyncHandler(async (req, res) => {
   try {
     const results = mockDatabase.getResultsForUser(req.user);
     const filename = `lab_results_${new Date().toISOString().slice(0, 10)}.pdf`;
@@ -1392,7 +1356,7 @@ app.get('/api/download/pdf', authenticateToken, requirePermission('canDownloadRe
 }));
 
 // Download specific result as PDF
-app.get('/api/download/pdf/:resultId', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
+app.get('/api/download/pdf/:resultId', authenticateToken, requireRole([USER_ROLES.ADMIN, USER_ROLES.LABTECH, USER_ROLES.DOCTOR]), asyncHandler(async (req, res) => {
   const { resultId } = req.params;
   
   try {

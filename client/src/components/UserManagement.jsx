@@ -20,7 +20,7 @@ const UserManagement = ({ currentUser }) => {
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await apiClient.get('/users', {
+      const response = await apiClient.get('/admin/users', {
         params: filters
       });
 
@@ -80,7 +80,7 @@ const UserManagement = ({ currentUser }) => {
     }
 
     try {
-      const response = await apiClient.delete(`/users/${userId}`);
+      const response = await apiClient.delete(`/admin/users/${userId}`);
       if (response.success) {
         setUsers(users.filter(user => user.id !== userId));
         alert('User deleted successfully');
@@ -94,7 +94,7 @@ const UserManagement = ({ currentUser }) => {
   // Handle user activation/deactivation
   const handleToggleUserStatus = async (userId, currentStatus) => {
     try {
-      const response = await apiClient.put(`/users/${userId}`, {
+      const response = await apiClient.put(`/admin/users/${userId}`, {
         isActive: !currentStatus
       });
       
@@ -120,13 +120,13 @@ const UserManagement = ({ currentUser }) => {
   // Get role badge color
   const getRoleBadgeColor = (role) => {
     switch (role) {
-      case 'admin':
+      case 'ADMIN':
         return 'bg-purple-100 text-purple-800';
-      case 'doctor':
+      case 'DOCTOR':
         return 'bg-blue-100 text-blue-800';
-      case 'lab_technician':
+      case 'LABTECH':
         return 'bg-green-100 text-green-800';
-      case 'patient':
+      case 'PATIENT':
         return 'bg-gray-100 text-gray-800';
       default:
         return 'bg-gray-100 text-gray-800';
@@ -497,7 +497,7 @@ const CreateUserModal = ({ isOpen, onClose, onUserCreated, roles }) => {
     setError('');
 
     try {
-      const response = await apiClient.post('/users', formData);
+      const response = await apiClient.post('/admin/users', formData);
       if (response.success) {
         onUserCreated(response.user);
         setFormData({
@@ -704,7 +704,7 @@ const EditUserModal = ({ isOpen, user, onClose, onUserUpdated, roles }) => {
     setError('');
 
     try {
-      const response = await apiClient.put(`/users/${user.id}`, formData);
+      const response = await apiClient.put(`/admin/users/${user.id}`, formData);
       if (response.success) {
         onUserUpdated(response.user);
       }
