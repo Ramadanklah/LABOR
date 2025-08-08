@@ -1,5 +1,9 @@
 // server/server.js
-require('dotenv').config(); // Load environment variables from .env
+const path = require('path');
+const dotenv = require('dotenv');
+// Load env from repo root then override with server/.env if present
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config(); // fallback to current dir
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -7,13 +11,14 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const NodeCache = require('node-cache');
 const winston = require('winston');
-const path = require('path');
 const LDTGenerator = require('./utils/ldtGenerator');
 const PDFGenerator = require('./utils/pdfGenerator');
 const { UserModel, USER_ROLES, ROLE_PERMISSIONS } = require('./models/User');
+const userService = require('./services/userService');
 const bodyParser = require('body-parser');
 const parseLDT = require('./utils/ldtParser');
 const crypto = require('crypto');
+const speakeasy = require('speakeasy');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -207,43 +212,38 @@ const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
-// Enhanced authentication middleware
-const authenticateToken = (req, res, next) => {
+// Replace in-memory authentication with Prisma-backed verification
+// DB-backed authentication middleware
+const authenticateTokenDb = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
-
   if (!token) {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Access token required' 
-    });
+    return res.status(401).json({ success: false, message: 'Access token required' });
   }
-
   try {
-    const decoded = userModel.verifyToken(token);
-    const user = userModel.getUserById(decoded.userId);
-    
+    const decoded = userModel.verifyToken(token); // reuse JWT validation
+    let user = null;
+    try {
+      user = await userService.getUserById(decoded.userId);
+    } catch (e) {
+      user = null;
+    }
     if (!user) {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'User not found' 
-      });
+      // Fallback to in-memory user (dev)
+      user = userModel.getUserById(decoded.userId);
     }
-
-    if (!user.isActive) {
-      return res.status(403).json({ 
-        success: false, 
-        message: 'User account is disabled' 
-      });
+    if (!user) {
+      return res.status(403).json({ success: false, message: 'User not found' });
     }
-
-    req.user = user;
+    if (user.isActive === false) {
+      return res.status(403).json({ success: false, message: 'User account is disabled' });
+    }
+    // Attach permissions derived from role if missing
+    const permissions = user.permissions || ROLE_PERMISSIONS[user.role] || {};
+    req.user = { ...user, permissions };
     next();
   } catch (error) {
-    res.status(403).json({ 
-      success: false, 
-      message: 'Invalid or expired token' 
-    });
+    res.status(403).json({ success: false, message: 'Invalid or expired token' });
   }
 };
 
@@ -619,6 +619,13 @@ const mockDatabase = {
   }
 };
 
+// Simple audit logger for admin operations
+function logAdminAction(action, actor, target) {
+  try {
+    mockDatabase.logAuditEvent(action, actor, { targetUserId: target?.id, targetUserEmail: target?.email, ipAddress: actor.ip || 'unknown' });
+  } catch {}
+}
+
 // --- API Routes ---
 
 // Health check endpoint
@@ -634,92 +641,77 @@ app.get('/api/health', (req, res) => {
 
 // === AUTHENTICATION ROUTES ===
 
-// Legacy login endpoint for backward compatibility
-app.post('/api/login', asyncHandler(async (req, res) => {
-  const { bsnr, lanr, password } = req.body;
-
-  // Input validation
-  if (!bsnr || !lanr || !password) {
-    return res.status(400).json({
-      success: false,
-      message: 'BSNR, LANR, and password are required'
-    });
-  }
-
-  try {
-    const authResult = await userModel.authenticateUser(null, password, bsnr, lanr);
-    
-    logger.info(`Successful legacy login for user: ${authResult.user.email} (${authResult.user.role})`);
-    
-    res.json({
-      success: true,
-      message: 'Login successful',
-      token: authResult.token
-    });
-  } catch (error) {
-    logger.warn(`Failed legacy login attempt: ${bsnr}/${lanr} - ${error.message}`);
-    
-    res.status(401).json({
-      success: false,
-      message: 'Invalid credentials'
-    });
-  }
-}));
-
 // Enhanced login endpoint with 2FA support
 app.post('/api/auth/login', asyncHandler(async (req, res) => {
-  const { email, password, bsnr, lanr, otp } = req.body;
-
-  // Input validation
-  if ((!email && (!bsnr || !lanr)) || !password) {
-    return res.status(400).json({
-      success: false,
-      message: 'Email or BSNR/LANR and password are required'
-    });
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ success: false, message: 'Email and password are required' });
   }
 
+  // Try DB first
   try {
-    const authResult = await userModel.authenticateUser(email, password, bsnr, lanr, otp);
-    
-    logger.info(`Successful login for user: ${authResult.user.email} (${authResult.user.role})`);
-    
-    res.json({
-      success: true,
-      message: 'Login successful',
-      token: authResult.token,
-      user: authResult.user
-    });
-  } catch (error) {
-    logger.warn(`Failed login attempt: ${email || `${bsnr}/${lanr}`} - ${error.message}`);
-    
-    res.status(401).json({
-      success: false,
-      message: error.message
-    });
+    const dbUser = await userService.getUserByEmail(email);
+    if (dbUser) {
+      if (dbUser.isActive === false) {
+        return res.status(403).json({ success: false, message: 'User account is disabled' });
+      }
+      const ok = await userService.verifyPassword(dbUser, password);
+      if (!ok) {
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
+      // Optional 2FA check
+      if (dbUser.is2faEnabled) {
+        const { otp } = req.body;
+        if (!otp) {
+          return res.status(400).json({ success: false, message: 'Two-factor authentication code required' });
+        }
+        const verified = speakeasy.totp.verify({
+          secret: dbUser.twoFactorSecret,
+          encoding: 'base32',
+          token: otp,
+          window: 1,
+        });
+        if (!verified) {
+          return res.status(401).json({ success: false, message: 'Invalid two-factor authentication code' });
+        }
+      }
+      const token = userModel.generateToken({
+        id: dbUser.id,
+        email: dbUser.email,
+        role: dbUser.role,
+        bsnr: dbUser.bsnr,
+        lanr: dbUser.lanr,
+        permissions: ROLE_PERMISSIONS[dbUser.role] || {},
+      });
+      return res.json({ success: true, message: 'Login successful', token, user: { ...dbUser, permissions: ROLE_PERMISSIONS[dbUser.role] || {} } });
+    }
+  } catch (e) {
+    // ignore and fallback
+  }
+
+  // Fallback to in-memory users (dev)
+  try {
+    const authResult = await userModel.authenticateUser(email, password);
+    return res.json({ success: true, message: 'Login successful', token: authResult.token, user: authResult.user });
+  } catch (e) {
+    return res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
 }));
 
-// Get current user info
-app.get('/api/auth/me', authenticateToken, (req, res) => {
-  res.json({
-    success: true,
-    user: req.user
-  });
+// DB-backed me/logout
+app.get('/api/auth/me', authenticateTokenDb, (req, res) => {
+  res.json({ success: true, user: req.user });
 });
 
-// Logout endpoint (client-side token invalidation)
-app.post('/api/auth/logout', authenticateToken, (req, res) => {
+app.post('/api/auth/logout', authenticateTokenDb, (req, res) => {
   logger.info(`User logged out: ${req.user.email}`);
-  res.json({
-    success: true,
-    message: 'Logged out successfully'
-  });
+  res.json({ success: true, message: 'Logged out successfully' });
 });
 
 // --- TWO-FACTOR AUTHENTICATION ROUTES ---
 
 // Generate a new 2FA secret for the authenticated user
-app.post('/api/auth/setup-2fa', authenticateToken, asyncHandler(async (req, res) => {
+app.post('/api/auth/setup-2fa', authenticateTokenDb, asyncHandler(async (req, res) => {
   try {
     const { otpauthUrl, base32 } = userModel.generateTwoFactorSecret(req.user.id);
     res.json({ success: true, otpauthUrl, secret: base32 });
@@ -729,7 +721,7 @@ app.post('/api/auth/setup-2fa', authenticateToken, asyncHandler(async (req, res)
 }));
 
 // Verify the provided OTP and permanently enable 2FA
-app.post('/api/auth/verify-2fa', authenticateToken, asyncHandler(async (req, res) => {
+app.post('/api/auth/verify-2fa', authenticateTokenDb, asyncHandler(async (req, res) => {
   const { token } = req.body;
 
   if (!token) {
@@ -747,12 +739,13 @@ app.post('/api/auth/verify-2fa', authenticateToken, asyncHandler(async (req, res
 // === USER MANAGEMENT ROUTES ===
 
 // Create new user (Admin only)
-app.post('/api/users', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+app.post('/api/admin/users', authenticateTokenDb, requireAdmin, asyncHandler(async (req, res) => {
   try {
-    const newUser = await userModel.createUser(req.body);
-    
+    const newUser = await userService.createUser(req.body);
+
     logger.info(`New user created: ${newUser.email} (${newUser.role}) by ${req.user.email}`);
-    
+    logAdminAction('ADMIN_CREATE_USER', req.user, newUser);
+
     res.status(201).json({
       success: true,
       message: 'User created successfully',
@@ -767,28 +760,27 @@ app.post('/api/users', authenticateToken, requireAdmin, asyncHandler(async (req,
 }));
 
 // Get all users (Admin only)
-app.get('/api/users', authenticateToken, requireAdmin, (req, res) => {
-  const { role, isActive, search } = req.query;
-  
-  const filters = {};
-  if (role) filters.role = role;
-  if (isActive !== undefined) filters.isActive = isActive === 'true';
-  if (search) filters.search = search;
-  
-  const users = userModel.getAllUsers(filters);
-  
+app.get('/api/admin/users', authenticateTokenDb, requireAdmin, asyncHandler(async (req, res) => {
+  const { role, isActive, search, page = 1, pageSize = 50 } = req.query;
+
+  const result = await userService.listUsers({ role, isActive, search, page, pageSize });
+
   res.json({
     success: true,
-    users,
-    total: users.length,
-    stats: userModel.getUserStats()
+    users: result.items,
+    pagination: {
+      page: result.page,
+      pageSize: result.pageSize,
+      total: result.total,
+      pages: result.pages
+    }
   });
-});
+}));
 
 // Get specific user (Admin or self)
-app.get('/api/users/:userId', authenticateToken, asyncHandler(async (req, res) => {
+app.get('/api/admin/users/:userId', authenticateTokenDb, asyncHandler(async (req, res) => {
   const { userId } = req.params;
-  
+
   // Users can view their own profile, admins can view any profile
   if (req.user.id !== userId && req.user.role !== USER_ROLES.ADMIN) {
     return res.status(403).json({
@@ -796,16 +788,16 @@ app.get('/api/users/:userId', authenticateToken, asyncHandler(async (req, res) =
       message: 'Access denied'
     });
   }
-  
-  const user = userModel.getUserById(userId);
-  
+
+  const user = await userService.getUserById(userId);
+
   if (!user) {
     return res.status(404).json({
       success: false,
       message: 'User not found'
     });
   }
-  
+
   res.json({
     success: true,
     user
@@ -813,10 +805,10 @@ app.get('/api/users/:userId', authenticateToken, asyncHandler(async (req, res) =
 }));
 
 // Update user (Admin or self for limited fields)
-app.put('/api/users/:userId', authenticateToken, asyncHandler(async (req, res) => {
+app.put('/api/admin/users/:userId', authenticateTokenDb, asyncHandler(async (req, res) => {
   const { userId } = req.params;
   const updates = req.body;
-  
+
   // Users can update their own profile with limited fields
   if (req.user.id !== userId && req.user.role !== USER_ROLES.ADMIN) {
     return res.status(403).json({
@@ -824,12 +816,12 @@ app.put('/api/users/:userId', authenticateToken, asyncHandler(async (req, res) =
       message: 'Access denied'
     });
   }
-  
+
   // Non-admin users can only update certain fields
   if (req.user.id === userId && req.user.role !== USER_ROLES.ADMIN) {
-    const allowedFields = ['firstName', 'lastName', 'email', 'password', 'specialization', 'department'];
+    const allowedFields = ['firstName', 'lastName', 'email', 'password'];
     const restrictedFields = Object.keys(updates).filter(field => !allowedFields.includes(field));
-    
+
     if (restrictedFields.length > 0) {
       return res.status(403).json({
         success: false,
@@ -837,12 +829,13 @@ app.put('/api/users/:userId', authenticateToken, asyncHandler(async (req, res) =
       });
     }
   }
-  
+
   try {
-    const updatedUser = await userModel.updateUser(userId, updates);
-    
+    const updatedUser = await userService.updateUser(userId, updates);
+
     logger.info(`User updated: ${updatedUser.email} by ${req.user.email}`);
-    
+    logAdminAction('ADMIN_UPDATE_USER', req.user, updatedUser);
+
     res.json({
       success: true,
       message: 'User updated successfully',
@@ -857,9 +850,9 @@ app.put('/api/users/:userId', authenticateToken, asyncHandler(async (req, res) =
 }));
 
 // Delete user (Admin only)
-app.delete('/api/users/:userId', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+app.delete('/api/admin/users/:userId', authenticateTokenDb, requireAdmin, asyncHandler(async (req, res) => {
   const { userId } = req.params;
-  
+
   // Prevent admin from deleting themselves
   if (req.user.id === userId) {
     return res.status(400).json({
@@ -867,20 +860,21 @@ app.delete('/api/users/:userId', authenticateToken, requireAdmin, asyncHandler(a
       message: 'Cannot delete your own account'
     });
   }
-  
+
   try {
-    const user = userModel.getUserById(userId);
+    const user = await userService.getUserById(userId);
     if (!user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
-    
-    userModel.deleteUser(userId);
-    
+
+    await userService.deleteUser(userId);
+
     logger.info(`User deleted: ${user.email} by ${req.user.email}`);
-    
+    logAdminAction('ADMIN_DELETE_USER', req.user, user);
+
     res.json({
       success: true,
       message: 'User deleted successfully'
@@ -894,13 +888,14 @@ app.delete('/api/users/:userId', authenticateToken, requireAdmin, asyncHandler(a
 }));
 
 // Get available roles (for user creation forms)
-app.get('/api/roles', authenticateToken, (req, res) => {
-  const roles = Object.entries(USER_ROLES).map(([key, value]) => ({
-    key,
-    value,
-    permissions: ROLE_PERMISSIONS[value]
-  }));
-  
+app.get('/api/admin/roles', authenticateTokenDb, requireAdmin, (req, res) => {
+  const roles = [
+    { key: 'admin', value: 'admin' },
+    { key: 'doctor', value: 'doctor' },
+    { key: 'lab_technician', value: 'lab_technician' },
+    { key: 'patient', value: 'patient' },
+  ];
+
   res.json({
     success: true,
     roles
@@ -910,7 +905,7 @@ app.get('/api/roles', authenticateToken, (req, res) => {
 // === ENHANCED RESULTS ROUTES WITH ACCESS CONTROL ===
 
 // Get results with role-based filtering
-app.get('/api/results', authenticateToken, cacheMiddleware(300), asyncHandler(async (req, res) => {
+app.get('/api/results', authenticateTokenDb, cacheMiddleware(300), asyncHandler(async (req, res) => {
   logger.info(`Fetching results for user: ${req.user.email} (${req.user.role})`);
   
   const results = mockDatabase.getResultsForUser(req.user);
@@ -946,7 +941,7 @@ app.get('/api/results', authenticateToken, cacheMiddleware(300), asyncHandler(as
 }));
 
 // Get specific result with access control
-app.get('/api/results/:resultId', authenticateToken, asyncHandler(async (req, res) => {
+app.get('/api/results/:resultId', authenticateTokenDb, asyncHandler(async (req, res) => {
   const { resultId } = req.params;
   
   const result = mockDatabase.getResultById(resultId, req.user);
@@ -975,7 +970,7 @@ app.get('/api/results/:resultId', authenticateToken, asyncHandler(async (req, re
 // === ADMIN ENDPOINTS ===
 
 // Get unassigned results (Admin only)
-app.get('/api/admin/unassigned-results', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+app.get('/api/admin/unassigned-results', authenticateTokenDb, requireAdmin, asyncHandler(async (req, res) => {
   const unassignedResults = mockDatabase.getUnassignedResults(req.user);
   
   res.json({
@@ -986,7 +981,7 @@ app.get('/api/admin/unassigned-results', authenticateToken, requireAdmin, asyncH
 }));
 
 // Assign result to user (Admin only)
-app.post('/api/admin/assign-result', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+app.post('/api/admin/assign-result', authenticateTokenDb, requireAdmin, asyncHandler(async (req, res) => {
   const { resultId, userEmail } = req.body;
 
   if (!resultId || !userEmail) {
@@ -1020,26 +1015,8 @@ app.post('/api/admin/assign-result', authenticateToken, requireAdmin, asyncHandl
   });
 }));
 
-// Get all users for assignment (Admin only)
-app.get('/api/admin/users', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
-  const users = userModel.getAllUsers({ isActive: true });
-  
-  res.json({
-    success: true,
-    users: users.map(user => ({
-      id: user.id,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      role: user.role,
-      bsnr: user.bsnr,
-      lanr: user.lanr
-    }))
-  });
-}));
-
 // Get audit log (Admin only)
-app.get('/api/admin/audit-log', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+app.get('/api/admin/audit-log', authenticateTokenDb, requireAdmin, asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 100;
   const startIndex = (page - 1) * limit;
@@ -1274,7 +1251,7 @@ app.post(
 
 // Enhanced download endpoints with access control
 // Download all results as LDT
-app.get('/api/download/ldt', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
+app.get('/api/download/ldt', authenticateTokenDb, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
   try {
     const results = mockDatabase.getResultsForUser(req.user);
     const filename = `lab_results_${new Date().toISOString().slice(0, 10)}.ldt`;
@@ -1310,7 +1287,7 @@ app.get('/api/download/ldt', authenticateToken, requirePermission('canDownloadRe
 }));
 
 // Download specific result as LDT
-app.get('/api/download/ldt/:resultId', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
+app.get('/api/download/ldt/:resultId', authenticateTokenDb, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
   const { resultId } = req.params;
   
   try {
@@ -1356,7 +1333,7 @@ app.get('/api/download/ldt/:resultId', authenticateToken, requirePermission('can
 }));
 
 // Download all results as PDF
-app.get('/api/download/pdf', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
+app.get('/api/download/pdf', authenticateTokenDb, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
   try {
     const results = mockDatabase.getResultsForUser(req.user);
     const filename = `lab_results_${new Date().toISOString().slice(0, 10)}.pdf`;
@@ -1392,7 +1369,7 @@ app.get('/api/download/pdf', authenticateToken, requirePermission('canDownloadRe
 }));
 
 // Download specific result as PDF
-app.get('/api/download/pdf/:resultId', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
+app.get('/api/download/pdf/:resultId', authenticateTokenDb, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
   const { resultId } = req.params;
   
   try {

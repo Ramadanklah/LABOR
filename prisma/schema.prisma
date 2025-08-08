@@ -7,19 +7,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  admin
+  doctor
+  lab_technician
+  patient
+}
+
 model User {
-  id                 String   @id @default(uuid())
-  email              String   @unique
-  password           String
-  firstName          String
-  lastName           String
-  role               String
-  bsnr               String?
-  lanr               String?
-  isActive           Boolean  @default(true)
-  isTwoFactorEnabled Boolean  @default(false)
-  twoFactorSecret    String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  lastLogin          DateTime?
+  id            String   @id @default(uuid())
+  email         String   @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  role          Role
+  bsnr          String?
+  lanr          String?
+  isActive      Boolean  @default(true)
+  is2faEnabled  Boolean  @default(false)
+  twoFactorSecret String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastLogin     DateTime?
 }

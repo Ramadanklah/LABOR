@@ -166,34 +166,56 @@ start-dev.bat
 
 This will start both backend and frontend servers simultaneously.
 
-## 🔐 Authentication & Demo Credentials
+## 🔐 Persistent Authentication & Users (New)
 
-### Demo Credentials
+- Database-backed `User` model managed via Prisma
+- Passwords are stored as bcrypt hashes (cost 12)
+- JWT issued with claims: `sub` (userId), `role`, `iat`, `exp`
 
-For testing purposes, use these demo credentials:
+Required env vars:
 
-**Doctor User:**
-- **BSNR**: `123456789`
-- **LANR**: `1234567`
-- **Password**: `doctor123`
+```
+JWT_SECRET=your-super-secure-jwt-secret
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DB
+```
 
-**Lab Technician User:**
-- **BSNR**: `123456789`
-- **LANR**: `1234568`
-- **Password**: `lab123`
+Prisma:
 
-**Admin User:**
-- **BSNR**: `999999999`
-- **LANR**: `9999999`
-- **Password**: `admin123`
+```
+# Generate client
+npx prisma generate --schema=prisma/schema.prisma
 
-### Authentication Flow
+# Create/apply migrations (dev)
+npx prisma migrate dev --schema=prisma/schema.prisma --name add_user_model
+```
 
-1. **Login**: User provides BSNR, LANR, and password
-2. **Validation**: Backend validates credentials against user database
-3. **Token Generation**: JWT token is generated and returned
-4. **Session Management**: Token is stored in browser and used for API calls
-5. **Authorization**: All subsequent requests require valid JWT token
+Seeding admin (dev/staging):
+
+```
+cd server
+SEED_ADMIN_EMAIL=admin@example.com SEED_ADMIN_PASSWORD='StrongPass123!' npm run seed:admin
+```
+
+## 🛡️ Admin API (protected)
+
+- POST `/api/admin/users` — create user
+- GET `/api/admin/users` — list users (pagination + filters)
+- GET `/api/admin/users/:id` — get user
+- PUT `/api/admin/users/:id` — update user
+- DELETE `/api/admin/users/:id` — delete user
+- GET `/api/admin/roles` — list roles
+
+Authentication:
+
+- POST `/api/auth/login` — email + password
+- GET `/api/auth/me`
+- POST `/api/auth/logout`
+
+Notes:
+
+- Legacy demo login and UI were removed from production build
+- Rate limiting active on `/api/auth/login`
+- Ensure HTTPS in production and strong `JWT_SECRET`
 
 ## 📊 API Endpoints
 

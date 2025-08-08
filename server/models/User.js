@@ -54,8 +54,10 @@ class UserModel {
     this.usersByEmail = new Map();
     this.usersByBsnrLanr = new Map();
 
-    // Initialize with default admin user
-    this.initializeDefaultUsers();
+    // Initialize with default admin user (DEV ONLY). In production, use seed script.
+    if (process.env.NODE_ENV !== 'production') {
+      this.initializeDefaultUsers();
+    }
   }
 
   // Initialize default users for testing

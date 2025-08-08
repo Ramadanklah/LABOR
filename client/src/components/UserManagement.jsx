@@ -15,18 +15,19 @@ const UserManagement = ({ currentUser }) => {
   });
   const [stats, setStats] = useState(null);
   const [roles, setRoles] = useState([]);
+  const [pagination, setPagination] = useState({ page: 1, pageSize: 20, total: 0, pages: 1 });
 
   // Fetch users
   const fetchUsers = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await apiClient.get('/users', {
-        params: filters
+      const response = await apiClient.get('/admin/users', {
+        params: { ...filters, page: pagination.page, pageSize: pagination.pageSize }
       });
 
       if (response.success) {
         setUsers(response.users);
-        setStats(response.stats);
+        setPagination(response.pagination || pagination);
         setError('');
       }
     } catch (error) {
@@ -35,14 +36,14 @@ const UserManagement = ({ currentUser }) => {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, pagination.page, pagination.pageSize]);
 
   // Fetch available roles
   const fetchRoles = useCallback(async () => {
     try {
-      const response = await apiClient.get('/roles');
+      const response = await apiClient.get('/admin/roles');
       if (response.success) {
-        setRoles(response.roles);
+        setRoles(response.roles.map(r => ({ key: r.key, value: r.value })));
       }
     } catch (error) {
       console.error('Error fetching roles:', error);
@@ -80,7 +81,7 @@ const UserManagement = ({ currentUser }) => {
     }
 
     try {
-      const response = await apiClient.delete(`/users/${userId}`);
+      const response = await apiClient.delete(`/admin/users/${userId}`);
       if (response.success) {
         setUsers(users.filter(user => user.id !== userId));
         alert('User deleted successfully');
@@ -94,7 +95,7 @@ const UserManagement = ({ currentUser }) => {
   // Handle user activation/deactivation
   const handleToggleUserStatus = async (userId, currentStatus) => {
     try {
-      const response = await apiClient.put(`/users/${userId}`, {
+      const response = await apiClient.put(`/admin/users/${userId}`, {
         isActive: !currentStatus
       });
       
@@ -497,7 +498,7 @@ const CreateUserModal = ({ isOpen, onClose, onUserCreated, roles }) => {
     setError('');
 
     try {
-      const response = await apiClient.post('/users', formData);
+      const response = await apiClient.post('/admin/users', formData);
       if (response.success) {
         onUserCreated(response.user);
         setFormData({
@@ -704,7 +705,7 @@ const EditUserModal = ({ isOpen, user, onClose, onUserUpdated, roles }) => {
     setError('');
 
     try {
-      const response = await apiClient.put(`/users/${user.id}`, formData);
+      const response = await apiClient.put(`/admin/users/${user.id}`, formData);
       if (response.success) {
         onUserUpdated(response.user);
       }

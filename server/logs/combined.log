@@ -288,3 +288,54 @@
 [32minfo[39m: POST /api/mirth-webhook - 422 - 3ms - 122bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-04T22:56:16.357Z"}
 [32minfo[39m: Received payload from Mirth Connect (alternative route) {"contentType":"text/plain","service":"lab-results-api","size":14,"timestamp":"2025-08-04T22:56:18.138Z"}
 [32minfo[39m: POST /api/mirth/webhook - 422 - 1ms - 61bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-04T22:56:18.139Z"}
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-08-08T12:13:54.117Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-08-08T12:13:54.119Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-08-08T12:13:54.119Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-08-08T12:13:54.119Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-08-08T12:13:54.119Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-08-08T12:13:54.119Z"}
+[32minfo[39m: GET /api/health - 200 - 1ms - 210bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-08T12:14:04.870Z"}
+[31merror[39m: Unhandled error: Expected property name or '}' in JSON at position 1 (line 1 column 2) {"body":"{email:admin@laborresults.de,password:admin123}","expose":true,"service":"lab-results-api","stack":"SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)\n    at JSON.parse (<anonymous>)\n    at parse (/workspace/server/node_modules/express/node_modules/body-parser/lib/types/json.js:77:19)\n    at /workspace/server/node_modules/express/node_modules/body-parser/lib/read.js:123:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:214:14)\n    at invokeCallback (/workspace/server/node_modules/express/node_modules/raw-body/index.js:238:16)\n    at done (/workspace/server/node_modules/express/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/workspace/server/node_modules/express/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:518:28)\n    at endReadableNT (node:internal/streams/readable:1698:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)","status":400,"statusCode":400,"timestamp":"2025-08-08T12:14:08.807Z","type":"entity.parse.failed"}
+[31merror[39m: Unhandled error: Expected property name or '}' in JSON at position 1 (line 1 column 2) {"body":"{email:admin@laborresults.de,password:admin123}","expose":true,"service":"lab-results-api","stack":"SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)\n    at JSON.parse (<anonymous>)\n    at parse (/workspace/server/node_modules/express/node_modules/body-parser/lib/types/json.js:77:19)\n    at /workspace/server/node_modules/express/node_modules/body-parser/lib/read.js:123:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:214:14)\n    at invokeCallback (/workspace/server/node_modules/express/node_modules/raw-body/index.js:238:16)\n    at done (/workspace/server/node_modules/express/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/workspace/server/node_modules/express/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:518:28)\n    at endReadableNT (node:internal/streams/readable:1698:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)","status":400,"statusCode":400,"timestamp":"2025-08-08T12:14:25.885Z","type":"entity.parse.failed"}
+[31merror[39m: Unhandled error: Expected property name or '}' in JSON at position 1 (line 1 column 2) {"body":"{email:admin@laborresults.de,password:admin123}","expose":true,"service":"lab-results-api","stack":"SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)\n    at JSON.parse (<anonymous>)\n    at parse (/workspace/server/node_modules/express/node_modules/body-parser/lib/types/json.js:77:19)\n    at /workspace/server/node_modules/express/node_modules/body-parser/lib/read.js:123:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:214:14)\n    at invokeCallback (/workspace/server/node_modules/express/node_modules/raw-body/index.js:238:16)\n    at done (/workspace/server/node_modules/express/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/workspace/server/node_modules/express/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:518:28)\n    at endReadableNT (node:internal/streams/readable:1698:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)","status":400,"statusCode":400,"timestamp":"2025-08-08T12:15:27.761Z","type":"entity.parse.failed"}
+[31merror[39m: Unhandled error: Expected property name or '}' in JSON at position 1 (line 1 column 2) {"body":"{email:admin@laborresults.de,password:admin123}","expose":true,"service":"lab-results-api","stack":"SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)\n    at JSON.parse (<anonymous>)\n    at parse (/workspace/server/node_modules/express/node_modules/body-parser/lib/types/json.js:77:19)\n    at /workspace/server/node_modules/express/node_modules/body-parser/lib/read.js:123:18\n    at AsyncResource.runInAsyncScope (node:async_hooks:214:14)\n    at invokeCallback (/workspace/server/node_modules/express/node_modules/raw-body/index.js:238:16)\n    at done (/workspace/server/node_modules/express/node_modules/raw-body/index.js:227:7)\n    at IncomingMessage.onEnd (/workspace/server/node_modules/express/node_modules/raw-body/index.js:287:7)\n    at IncomingMessage.emit (node:events:518:28)\n    at endReadableNT (node:internal/streams/readable:1698:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)","status":400,"statusCode":400,"timestamp":"2025-08-08T12:16:05.469Z","type":"entity.parse.failed"}
+[31merror[39m: Unhandled error: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/server/services/userService.js:54:34
+
+  51 }
+  52 
+  53 async function getUserByEmail(email) {
+→ 54   const user = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:7
+   | 
+ 6 |   provider = "postgresql"
+ 7 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1 {"clientVersion":"6.13.0","name":"PrismaClientInitializationError","service":"lab-results-api","stack":"PrismaClientInitializationError: \nInvalid `prisma.user.findUnique()` invocation in\n/workspace/server/services/userService.js:54:34\n\n  51 }\n  52 \n  53 async function getUserByEmail(email) {\n→ 54   const user = await prisma.user.findUnique(\nerror: Environment variable not found: DATABASE_URL.\n  -->  schema.prisma:7\n   | \n 6 |   provider = \"postgresql\"\n 7 |   url      = env(\"DATABASE_URL\")\n   | \n\nValidation Error Count: 1\n    at ri.handleRequestError (/workspace/node_modules/@prisma/client/runtime/library.js:121:7759)\n    at ri.handleAndLogRequestError (/workspace/node_modules/@prisma/client/runtime/library.js:121:6784)\n    at ri.request (/workspace/node_modules/@prisma/client/runtime/library.js:121:6491)\n    at async l (/workspace/node_modules/@prisma/client/runtime/library.js:130:9812)\n    at async Object.getUserByEmail (/workspace/server/services/userService.js:54:16)\n    at async /workspace/server/server.js:635:16","timestamp":"2025-08-08T12:17:15.122Z"}
+[32minfo[39m: POST /api/auth/login - 500 - 5ms - 1406bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-08T12:17:15.122Z"}
+[32minfo[39m: SIGTERM received, shutting down gracefully {"service":"lab-results-api","timestamp":"2025-08-08T12:17:58.007Z"}
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-08-08T12:18:58.450Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-08-08T12:18:58.452Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-08-08T12:18:58.452Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-08-08T12:18:58.452Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-08-08T12:18:58.452Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-08-08T12:18:58.452Z"}
+[32minfo[39m: SIGINT received, shutting down gracefully {"service":"lab-results-api","timestamp":"2025-08-08T12:33:58.501Z"}
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-08-08T12:34:26.254Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-08-08T12:34:26.256Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-08-08T12:34:26.256Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-08-08T12:34:26.256Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-08-08T12:34:26.256Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-08-08T12:34:26.256Z"}
+[32minfo[39m: SIGINT received, shutting down gracefully {"service":"lab-results-api","timestamp":"2025-08-08T12:49:25.791Z"}
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-08-08T12:49:48.312Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-08-08T12:49:48.314Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-08-08T12:49:48.314Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-08-08T12:49:48.314Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-08-08T12:49:48.314Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-08-08T12:49:48.314Z"}
+[32minfo[39m: GET /api/health - 200 - 1ms - 209bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-08T12:49:54.039Z"}
+[32minfo[39m: POST /api/auth/login - 200 - 268ms - 1094bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-08T12:50:01.875Z"}

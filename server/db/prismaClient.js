@@ -4,10 +4,10 @@
   models have been migrated from in-memory storage to a real database.
 */
 
-const { PrismaClient } = require('@prisma/client/edge');
-const { withAccelerate } = require('@prisma/extension-accelerate');
+const path = require('path');
+const modulePath = path.resolve(__dirname, '../../node_modules/@prisma/client');
+const { PrismaClient } = require(modulePath);
 
-// Extend the client with Accelerate for edge-optimised queries
-const prisma = new PrismaClient().$extends(withAccelerate());
+const prisma = new PrismaClient();
 
 module.exports = prisma;
