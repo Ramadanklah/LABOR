@@ -52,18 +52,6 @@ function LoginPage({ onLoginSuccess, onError }) {
     }
   };
 
-  const demoUsers = [
-    { label: 'Admin', email: 'admin@laborresults.de', password: 'admin123', role: 'Administrator' },
-    { label: 'Doctor', email: 'doctor@laborresults.de', password: 'doctor123', role: 'Doctor' },
-    { label: 'Lab Tech', email: 'lab@laborresults.de', password: 'lab123', role: 'Lab Technician' }
-  ];
-
-  const fillDemo = (user) => {
-    setLoginMethod('email');
-    setEmail(user.email);
-    setPassword(user.password);
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
@@ -224,28 +212,6 @@ function LoginPage({ onLoginSuccess, onError }) {
             )}
           </div>
         </form>
-
-        {/* Demo Users Section */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="bg-white p-4 rounded-lg shadow-md">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Demo Users (Development)</h3>
-            <div className="grid grid-cols-1 gap-2">
-              {demoUsers.map((user, index) => (
-                <button
-                  key={index}
-                  onClick={() => fillDemo(user)}
-                  className="text-left p-2 text-xs bg-gray-50 hover:bg-gray-100 rounded border transition-colors duration-150"
-                >
-                  <div className="font-medium text-gray-800">{user.label} - {user.role}</div>
-                  <div className="text-gray-600">{user.email}</div>
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-gray-500 mt-2">
-              Click any demo user to auto-fill login credentials
-            </p>
-          </div>
-        )}
 
         {/* Footer */}
         <div className="text-center">
