@@ -14,6 +14,8 @@ const { UserModel, USER_ROLES, ROLE_PERMISSIONS } = require('./models/User');
 const bodyParser = require('body-parser');
 const parseLDT = require('./utils/ldtParser');
 const crypto = require('crypto');
+const fs = require('fs');
+const os = require('os');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -26,6 +28,19 @@ const cache = new NodeCache({
   maxKeys: 1000, // Maximum cache entries
   deleteOnExpire: true, // Automatically delete expired entries
 });
+
+// In-memory token revocation list (basic blacklist)
+const revokedTokens = new Set();
+
+// Ensure raw logs directory exists for append-only raw message storage
+const RAW_LOG_DIR = path.join(__dirname, 'logs_raw');
+try {
+  if (!fs.existsSync(RAW_LOG_DIR)) {
+    fs.mkdirSync(RAW_LOG_DIR, { recursive: true });
+  }
+} catch (e) {
+  // non-fatal
+}
 
 // Initialize user model
 const userModel = new UserModel();
@@ -216,6 +231,13 @@ const authenticateToken = (req, res, next) => {
     return res.status(401).json({ 
       success: false, 
       message: 'Access token required' 
+    });
+  }
+
+  if (revokedTokens.has(token)) {
+    return res.status(401).json({
+      success: false,
+      message: 'Token revoked'
     });
   }
 
@@ -709,6 +731,11 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 
 // Logout endpoint (client-side token invalidation)
 app.post('/api/auth/logout', authenticateToken, (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (token) {
+    revokedTokens.add(token);
+  }
   logger.info(`User logged out: ${req.user.email}`);
   res.json({
     success: true,
@@ -948,28 +975,27 @@ app.get('/api/results', authenticateToken, cacheMiddleware(300), asyncHandler(as
 // Get specific result with access control
 app.get('/api/results/:resultId', authenticateToken, asyncHandler(async (req, res) => {
   const { resultId } = req.params;
-  
-  const result = mockDatabase.getResultById(resultId, req.user);
-  
-  if (!result) {
-    return res.status(404).json({
-      success: false,
-      message: 'Result not found or access denied'
-    });
+
+  // Find regardless of access first
+  const anyResult = mockDatabase.results.find(r => r.id === resultId);
+  if (!anyResult) {
+    return res.status(404).json({ success: false, message: 'Result not found' });
   }
-  
+
+  const accessible = mockDatabase.getResultsForUser(req.user).some(r => r.id === resultId);
+  if (!accessible) {
+    return res.status(403).json({ success: false, message: 'Access to result denied' });
+  }
+
   // Log audit event
   mockDatabase.logAuditEvent('RESULT_ACCESSED', req.user, {
     resultId,
-    patient: result.patient,
-    type: result.type,
+    patient: anyResult.patient,
+    type: anyResult.type,
     ipAddress: req.ip
   });
-  
-  res.json({
-    success: true,
-    result
-  });
+
+  res.json({ success: true, result: anyResult });
 }));
 
 // === ADMIN ENDPOINTS ===
@@ -1061,110 +1087,165 @@ app.get('/api/admin/audit-log', authenticateToken, requireAdmin, asyncHandler(as
   });
 }));
 
-// Mirth Connect ingestion endpoint to accept LDT payloads
+// Webhook security helpers
+const WEBHOOK_MAX_SKEW_MS = 5 * 60 * 1000; // 5 minutes
+const webhookReplayCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
+
+function validateContentType(req, res) {
+  const ct = (req.headers['content-type'] || '').toLowerCase();
+  if (!(ct.includes('text/plain') || ct.includes('application/json'))) {
+    res.status(415).json({ success: false, message: 'Unsupported Content-Type' });
+    return false;
+  }
+  return true;
+}
+
+function computeBodySha256Hex(buffer) {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
+function validateWebhookSignature(req, res, next) {
+  const secret = process.env.MIRTH_WEBHOOK_SECRET;
+  if (!secret) {
+    logger.warn('MIRTH_WEBHOOK_SECRET not set; rejecting webhook in production');
+  }
+
+  const signatureHeader = req.headers['x-signature'] || req.headers['x-signature-sha256'];
+  const timestampHeader = req.headers['x-timestamp'];
+  const idempotencyKey = req.headers['idempotency-key'];
+
+  if (!signatureHeader || !timestampHeader) {
+    return res.status(401).json({ success: false, message: 'Missing signature or timestamp' });
+  }
+
+  // Replay protection
+  const now = Date.now();
+  const ts = Number(timestampHeader);
+  if (!Number.isFinite(ts) || Math.abs(now - ts) > WEBHOOK_MAX_SKEW_MS) {
+    return res.status(401).json({ success: false, message: 'Invalid or expired timestamp' });
+  }
+
+  const rawBody = req.body instanceof Buffer ? req.body : Buffer.from(req.body || '');
+
+  // Verify HMAC SHA256: expected format 'sha256=hex'
+  const expected = crypto
+    .createHmac('sha256', secret || '')
+    .update(timestampHeader + '.' + rawBody)
+    .digest('hex');
+
+  const provided = signatureHeader.includes('=') ? signatureHeader.split('=')[1] : signatureHeader;
+  const valid = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
+  if (!valid) {
+    return res.status(401).json({ success: false, message: 'Invalid signature' });
+  }
+
+  // Replay cache key
+  const replayKey = idempotencyKey || (timestampHeader + ':' + computeBodySha256Hex(rawBody));
+  if (webhookReplayCache.get(replayKey)) {
+    return res.status(200).json({ success: true, message: 'Duplicate webhook ignored' });
+  }
+  webhookReplayCache.set(replayKey, true, 600);
+
+  // Attach helpers
+  req.rawBody = rawBody;
+  req.webhookReplayKey = replayKey;
+  req.webhookBodyHash = computeBodySha256Hex(rawBody);
+  next();
+}
+
+// Dedicated rate limiter for webhook path
+const webhookLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: process.env.NODE_ENV === 'production' ? 60 : 600,
+  message: 'Too many webhook requests',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Utility: append-only raw log
+function persistRawMessage(rawBuffer) {
+  try {
+    const filename = `ldt_${new Date().toISOString().replace(/[:.]/g, '-')}_${crypto.randomUUID()}.txt`;
+    const filePath = path.join(RAW_LOG_DIR, filename);
+    fs.writeFileSync(filePath, rawBuffer);
+    return filePath;
+  } catch (e) {
+    logger.warn('Failed to persist raw message:', e.message);
+    return null;
+  }
+}
+
+// Mirth Connect ingestion endpoint to accept LDT payloads (secured)
 app.post(
   '/api/mirth-webhook',
+  webhookLimiter,
   express.raw({ type: '*/*', limit: '10mb' }),
+  validateWebhookSignature,
   asyncHandler(async (req, res) => {
-    logger.info('Received payload from Mirth Connect', {
-      contentType: req.headers['content-type'],
-      size: req.body ? req.body.length : 0,
-    });
-    
-    // Debug: Log the actual content for troubleshooting
-    logger.info('Raw payload content:', req.body.toString());
+    if (!validateContentType(req, res)) return;
 
-    // Handle different content types
+    const rawBody = req.rawBody || req.body;
+
+    logger.info('Received payload from Mirth Connect (secured)', {
+      contentType: req.headers['content-type'],
+      size: rawBody ? rawBody.length : 0,
+      bodyHash: req.webhookBodyHash
+    });
+
+    // Persist raw
+    const storedPath = persistRawMessage(rawBody);
+
+    // Parse the LDT payload
     let ldtPayload;
-    const rawBody = req.body.toString('utf8');
-    
+    const asString = rawBody.toString('utf8');
+
     if (req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
-      // Handle JSON payload - extract LDT data from JSON structure
       try {
-        const jsonBody = JSON.parse(rawBody);
-        ldtPayload = jsonBody.data || jsonBody.payload || jsonBody.content || jsonBody.message || jsonBody.ldt || rawBody;
-        // If we extracted from JSON, we need to unescape the newlines and ensure it's a string
-        if (ldtPayload !== rawBody) {
+        const jsonBody = JSON.parse(asString);
+        ldtPayload = jsonBody.data || jsonBody.payload || jsonBody.content || jsonBody.message || jsonBody.ldt || asString;
+        if (ldtPayload !== asString) {
           ldtPayload = String(ldtPayload).replace(/\\n/g, '\n');
         }
       } catch (error) {
-        // If JSON parsing fails, treat as raw text
-        ldtPayload = rawBody;
+        ldtPayload = asString;
       }
     } else {
-      // Handle text/plain payload
-      ldtPayload = rawBody;
+      ldtPayload = asString;
     }
 
-    // Basic validation – we expect a non-empty string
     if (!ldtPayload || typeof ldtPayload !== 'string' || ldtPayload.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No valid LDT payload detected',
-        receivedType: typeof req.body,
-        contentType: req.headers['content-type']
-      });
+      return res.status(400).json({ success: false, message: 'No valid LDT payload detected' });
     }
 
-    // Parse the LDT payload into individual records
     const parsedRecords = parseLDT(ldtPayload);
-    
-    // Debug logging
-    logger.info('LDT parsing debug:', {
-      originalPayload: ldtPayload,
-      parsedRecordsCount: parsedRecords.length,
-      parsedRecords: parsedRecords
-    });
-
     if (parsedRecords.length === 0) {
-      return res.status(422).json({
-        success: false,
-        message: 'Unable to parse any LDT records',
-        debug: {
-          originalPayload: ldtPayload,
-          parsedRecordsCount: parsedRecords.length
-        }
-      });
+      return res.status(422).json({ success: false, message: 'Unable to parse any LDT records' });
     }
 
-    // Persist the raw message & parsed representation
     const messageId = crypto.randomUUID();
-    mockDatabase.addLDTMessage({
-      id: messageId,
-      receivedAt: new Date().toISOString(),
-      raw: ldtPayload,
-      parsed: parsedRecords,
-    });
+    mockDatabase.addLDTMessage({ id: messageId, receivedAt: new Date().toISOString(), raw: ldtPayload, parsed: parsedRecords });
 
-    // Extract BSNR, LANR, and patient data from LDT
     const ldtData = mockDatabase.extractLDTIdentifiers(parsedRecords);
-    
-    // Create result from LDT data
     const newResult = mockDatabase.createResultFromLDT(ldtData, messageId);
-    
-    // Add the result to the database
     mockDatabase.results.push(newResult);
 
-    // Log the processing
     logger.info(`Processed LDT message ${messageId}:`, {
       recordCount: parsedRecords.length,
       bsnr: ldtData.bsnr,
       lanr: ldtData.lanr,
       patient: newResult.patient,
       assignedTo: newResult.assignedTo,
-      resultId: newResult.id
+      resultId: newResult.id,
+      bodyHash: req.webhookBodyHash,
+      storedPath
     });
 
-    // Respond with processing details
     res.status(202).json({
       success: true,
       messageId,
-      recordCount: parsedRecords.length,
+      replayKey: req.webhookReplayKey,
+      bodyHash: req.webhookBodyHash,
       resultId: newResult.id,
-      bsnr: ldtData.bsnr,
-      lanr: ldtData.lanr,
-      patient: newResult.patient,
-      assignedTo: newResult.assignedTo,
       message: newResult.assignedTo 
         ? `Result assigned to ${newResult.assignedTo}` 
         : 'Result created but not assigned (admin review required)'
@@ -1172,103 +1253,51 @@ app.post(
   })
 );
 
-// Alternative route for Mirth Connect with different path structure
+// Alternative route (kept but secured similarly)
 app.post(
   '/api/mirth/webhook',
+  webhookLimiter,
   express.raw({ type: '*/*', limit: '10mb' }),
+  validateWebhookSignature,
   asyncHandler(async (req, res) => {
-    logger.info('Received payload from Mirth Connect (alternative route)', {
-      contentType: req.headers['content-type'],
-      size: req.body ? req.body.length : 0,
-    });
-    
-    // Debug: Log the actual content for troubleshooting
-    logger.info('Raw payload content (alternative route):', req.body.toString());
+    if (!validateContentType(req, res)) return;
 
-    // Handle different content types
+    const rawBody = req.rawBody || req.body;
+    const asString = rawBody.toString('utf8');
+
     let ldtPayload;
-    const rawBody = req.body.toString('utf8');
-    
     if (req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
-      // Handle JSON payload - extract LDT data from JSON structure
       try {
-        const jsonBody = JSON.parse(rawBody);
-        ldtPayload = jsonBody.data || jsonBody.payload || jsonBody.content || jsonBody.message || jsonBody.ldt || rawBody;
-        // If we extracted from JSON, we need to unescape the newlines
-        if (ldtPayload !== rawBody) {
+        const jsonBody = JSON.parse(asString);
+        ldtPayload = jsonBody.data || jsonBody.payload || jsonBody.content || jsonBody.message || jsonBody.ldt || asString;
+        if (ldtPayload !== asString) {
           ldtPayload = ldtPayload.replace(/\\n/g, '\n');
         }
       } catch (error) {
-        // If JSON parsing fails, treat as raw text
-        ldtPayload = rawBody;
+        ldtPayload = asString;
       }
     } else {
-      // Handle text/plain payload
-      ldtPayload = rawBody;
+      ldtPayload = asString;
     }
 
-    // Basic validation – we expect a non-empty string
     if (!ldtPayload || typeof ldtPayload !== 'string' || ldtPayload.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No valid LDT payload detected',
-        receivedType: typeof req.body,
-        contentType: req.headers['content-type']
-      });
+      return res.status(400).json({ success: false, message: 'No valid LDT payload detected' });
     }
 
-    // Parse the LDT payload into individual records
     const parsedRecords = parseLDT(ldtPayload);
-
     if (parsedRecords.length === 0) {
-      return res.status(422).json({
-        success: false,
-        message: 'Unable to parse any LDT records',
-      });
+      return res.status(422).json({ success: false, message: 'Unable to parse any LDT records' });
     }
 
-    // Persist the raw message & parsed representation
     const messageId = crypto.randomUUID();
-    mockDatabase.addLDTMessage({
-      id: messageId,
-      receivedAt: new Date().toISOString(),
-      raw: ldtPayload,
-      parsed: parsedRecords,
-    });
-
-    // Extract BSNR, LANR, and patient data from LDT
+    mockDatabase.addLDTMessage({ id: messageId, receivedAt: new Date().toISOString(), raw: ldtPayload, parsed: parsedRecords });
     const ldtData = mockDatabase.extractLDTIdentifiers(parsedRecords);
-    
-    // Create result from LDT data
     const newResult = mockDatabase.createResultFromLDT(ldtData, messageId);
-    
-    // Add the result to the database
     mockDatabase.results.push(newResult);
 
-    // Log the processing
-    logger.info(`Processed LDT message ${messageId} (alternative route):`, {
-      recordCount: parsedRecords.length,
-      bsnr: ldtData.bsnr,
-      lanr: ldtData.lanr,
-      patient: newResult.patient,
-      assignedTo: newResult.assignedTo,
-      resultId: newResult.id
-    });
+    logger.info(`Processed LDT message ${messageId} (alternative route)`, { resultId: newResult.id, bodyHash: req.webhookBodyHash });
 
-    // Respond with processing details
-    res.status(202).json({
-      success: true,
-      messageId,
-      recordCount: parsedRecords.length,
-      resultId: newResult.id,
-      bsnr: ldtData.bsnr,
-      lanr: ldtData.lanr,
-      patient: newResult.patient,
-      assignedTo: newResult.assignedTo,
-      message: newResult.assignedTo 
-        ? `Result assigned to ${newResult.assignedTo}` 
-        : 'Result created but not assigned (admin review required)'
-    });
+    res.status(202).json({ success: true, messageId, resultId: newResult.id });
   })
 );
 
@@ -1313,16 +1342,17 @@ app.get('/api/download/ldt', authenticateToken, requirePermission('canDownloadRe
 app.get('/api/download/ldt/:resultId', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
   const { resultId } = req.params;
   
+  const anyResult = mockDatabase.results.find(r => r.id === resultId);
+  if (!anyResult) {
+    return res.status(404).json({ success: false, message: 'Result not found' });
+  }
+  const accessible = mockDatabase.getResultsForUser(req.user).some(r => r.id === resultId);
+  if (!accessible) {
+    return res.status(403).json({ success: false, message: 'Access to result denied' });
+  }
+
   try {
-    const result = mockDatabase.getResultById(resultId, req.user);
-    if (!result) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Result not found or access denied' 
-      });
-    }
-    
-    const results = [result];
+    const results = [anyResult];
     const filename = `result_${resultId}_${new Date().toISOString().slice(0, 10)}.ldt`;
 
     const ldtGenerator = new LDTGenerator();
@@ -1395,18 +1425,18 @@ app.get('/api/download/pdf', authenticateToken, requirePermission('canDownloadRe
 app.get('/api/download/pdf/:resultId', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
   const { resultId } = req.params;
   
-  try {
-    const result = mockDatabase.getResultById(resultId, req.user);
-    if (!result) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Result not found or access denied' 
-      });
-    }
-    
-    const results = [result];
-    const filename = `result_${resultId}_${new Date().toISOString().slice(0, 10)}.pdf`;
+  const anyResult = mockDatabase.results.find(r => r.id === resultId);
+  if (!anyResult) {
+    return res.status(404).json({ success: false, message: 'Result not found' });
+  }
+  const accessible = mockDatabase.getResultsForUser(req.user).some(r => r.id === resultId);
+  if (!accessible) {
+    return res.status(403).json({ success: false, message: 'Access to result denied' });
+  }
 
+  try {
+    const results = [anyResult];
+    const filename = `result_${resultId}_${new Date().toISOString().slice(0, 10)}.pdf`;
     const pdfGenerator = new PDFGenerator();
     const pdfBuffer = await pdfGenerator.generatePDF(results, {
       labInfo: {

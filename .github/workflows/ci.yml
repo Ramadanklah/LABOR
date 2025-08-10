@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" 
+          --health-interval 10s 
+          --health-timeout 5s 
+          --health-retries 5
+    env:
+      JWT_SECRET: test_jwt_secret_please_override
+      NODE_ENV: test
+      MIRTH_WEBHOOK_SECRET: test_secret
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install server deps
+        working-directory: server
+        run: npm ci
+
+      - name: Install client deps
+        working-directory: client
+        run: npm ci
+
+      - name: Start server
+        working-directory: server
+        run: |
+          nohup npm start &
+          echo $! > ../server.pid
+          sleep 3
+
+      - name: Run basic API tests
+        run: bash ./test-api.sh
+
+      - name: Run access control tests
+        run: bash ./test-access-control.sh
+
+      - name: Stop server
+        if: always()
+        run: |
+          kill $(cat server.pid) || true

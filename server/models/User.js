@@ -269,7 +269,7 @@ class UserModel {
       throw new Error('JWT_SECRET environment variable is required');
     }
     return jwt.sign(payload, jwtSecret, {
-      expiresIn: process.env.JWT_EXPIRATION || '24h'
+      expiresIn: process.env.JWT_EXPIRATION || '15m'
     });
   }
 
