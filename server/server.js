@@ -140,10 +140,35 @@ app.use('/api/download', downloadLimiter);
 app.use('/api/auth/login', authLimiter);
 
 // CORS configuration with optimizations
+const buildAllowedOrigins = () => {
+  if (process.env.NODE_ENV !== 'production') {
+    return ['http://localhost:3000', 'http://127.0.0.1:3000'];
+  }
+  const fromEnv = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  return fromEnv;
+};
+
+const allowedOrigins = buildAllowedOrigins();
+
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? process.env.FRONTEND_URL || 'http://localhost:3000'
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin: function(origin, callback) {
+    // Allow non-browser or same-origin requests (no Origin header)
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.length === 0) {
+      // If not configured in production, reflect the origin to avoid hard failures.
+      // It is recommended to set FRONTEND_URLS in production.
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -151,6 +176,7 @@ const corsOptions = {
   maxAge: 86400, // Cache preflight requests for 24 hours
 };
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Optimized body parsing
 app.use(express.json({ 
