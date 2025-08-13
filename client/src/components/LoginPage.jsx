@@ -41,12 +41,11 @@ function LoginPage({ onLoginSuccess, onError }) {
       }
     } catch (error) {
       console.error('Login error:', error);
-      const errorMessage = error.message || 'Network error or server unavailable';
+      const errorMessage = (error?.name === 'TypeError')
+        ? 'Netzwerkfehler: Server nicht erreichbar. Bitte erneut versuchen.'
+        : (error.message || 'Unbekannter Fehler beim Anmelden');
       setMessage(errorMessage);
-      
-      if (onError) {
-        onError(new Error(errorMessage));
-      }
+      // Do not escalate to app-level error; show inline message only
     } finally {
       setIsLoading(false);
     }

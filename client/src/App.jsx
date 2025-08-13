@@ -294,8 +294,11 @@ function App() {
   // Handle app errors
   const handleAppError = (error) => {
     console.error('App error:', error);
+    // Avoid swallowing network errors from login; they are handled inline in LoginPage
+    if (error?.name === 'TypeError' && window.location.pathname === '/login') return;
     setAppError(error.message || 'An unexpected error occurred');
   };
+
 
   // Clear app error
   const clearAppError = () => {

@@ -1,7 +1,7 @@
 // Frontend API utility with optimizations
 class APIClient {
   constructor() {
-    this.baseURL = '/api';
+    this.baseURL = import.meta?.env?.VITE_API_BASE_URL || '/api';
     this.cache = new Map();
     this.requestInterceptors = [];
     this.responseInterceptors = [];
