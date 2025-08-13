@@ -7,19 +7,226 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Multi-tenancy: Tenant entity
+model Tenant {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  domain      String?  @unique
+  isActive    Boolean  @default(true)
+  plan        String   @default("trial") // trial, basic, professional, enterprise
+  maxUsers    Int      @default(5)
+  maxStorage  Int      @default(10) // GB
+  maxRequests Int      @default(1000) // per month
+  settings    Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users       User[]
+  results     Result[]
+  files       File[]
+  ldtMessages LdtMessage[]
+  auditLogs   AuditLog[]
+  quotas      QuotaUsage[]
+
+  @@map("tenants")
+}
+
+// Enhanced User model with tenant support
 model User {
   id                 String   @id @default(uuid())
-  email              String   @unique
+  email              String
   password           String
   firstName          String
   lastName           String
-  role               String
+  role               String   // admin, lab_technician, doctor, viewer
   bsnr               String?
   lanr               String?
   isActive           Boolean  @default(true)
   isTwoFactorEnabled Boolean  @default(false)
   twoFactorSecret    String?
+  lastLogin          DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
-  lastLogin          DateTime?
+
+  // Tenant relationship
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Relations
+  results   Result[]
+  auditLogs AuditLog[]
+
+  @@unique([email, tenantId])
+  @@map("users")
 }
+
+// Laboratory results with tenant isolation
+model Result {
+  id          String   @id @default(uuid())
+  patientId   String
+  patientName String
+  testType    String
+  testDate    DateTime
+  status      String   @default("pending") // pending, completed, rejected
+  data        Json
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Tenant relationship
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // User relationship (who created/processed)
+  userId String?
+  user   User? @relation(fields: [userId], references: [id])
+
+  // Relations
+  files File[]
+
+  @@map("results")
+}
+
+// File storage with S3 integration
+model File {
+  id          String   @id @default(uuid())
+  filename    String
+  originalName String
+  mimeType    String
+  size        Int
+  s3Key       String   @unique
+  s3Bucket    String
+  checksum    String
+  isVirusScanned Boolean @default(false)
+  isVirusFree Boolean @default(true)
+  virusScanResult String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Tenant relationship
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Result relationship (optional - files can exist without results)
+  resultId String?
+  result   Result? @relation(fields: [resultId], references: [id])
+
+  @@map("files")
+}
+
+// LDT Messages from Mirth Connect
+model LdtMessage {
+  id            String   @id @default(uuid())
+  messageId     String   @unique // External message ID from Mirth
+  rawMessage    String   // Raw LDT XML
+  parsedData    Json?    // Parsed LDT data
+  status        String   @default("received") // received, processing, completed, failed
+  errorMessage  String?
+  processingTime Int?    // Processing time in milliseconds
+  retryCount    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Tenant relationship
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("ldt_messages")
+}
+
+// Audit logging for compliance
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String   // login, logout, create, read, update, delete, download
+  resource    String   // user, result, file, etc.
+  resourceId  String?
+  details     Json     @default("{}")
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  // Tenant relationship
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // User relationship (who performed the action)
+  userId String?
+  user   User? @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// Quota usage tracking
+model QuotaUsage {
+  id          String   @id @default(uuid())
+  type        String   // storage, requests, users
+  amount      Int
+  period      String   // daily, monthly
+  periodStart DateTime
+  periodEnd   DateTime
+  createdAt   DateTime @default(now())
+
+  // Tenant relationship
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, type, period, periodStart])
+  @@map("quota_usage")
+}
+
+// API Keys for external integrations
+model ApiKey {
+  id          String   @id @default(uuid())
+  name        String
+  keyHash     String   @unique
+  permissions Json     @default("[]")
+  isActive    Boolean  @default(true)
+  lastUsed    DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Tenant relationship
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+// Webhook configurations
+model Webhook {
+  id          String   @id @default(uuid())
+  name        String
+  url         String
+  secret      String
+  events      Json     @default("[]") // Array of event types
+  isActive    Boolean  @default(true)
+  lastTriggered DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Tenant relationship
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("webhooks")
+}
+
+// Database indexes for performance
+@@index([tenantId], name: "idx_users_tenant")
+@@index([tenantId], name: "idx_results_tenant")
+@@index([tenantId], name: "idx_files_tenant")
+@@index([tenantId], name: "idx_ldt_messages_tenant")
+@@index([tenantId], name: "idx_audit_logs_tenant")
+@@index([tenantId], name: "idx_quota_usage_tenant")
+@@index([tenantId], name: "idx_api_keys_tenant")
+@@index([tenantId], name: "idx_webhooks_tenant")
+
+@@index([email, tenantId], name: "idx_users_email_tenant")
+@@index([patientId, tenantId], name: "idx_results_patient_tenant")
+@@index([messageId], name: "idx_ldt_messages_message_id")
+@@index([s3Key], name: "idx_files_s3_key")
+@@index([action, tenantId], name: "idx_audit_logs_action_tenant")
+@@index([type, tenantId, periodStart], name: "idx_quota_usage_type_tenant_period")
