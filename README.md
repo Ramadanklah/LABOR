@@ -154,6 +154,15 @@ User Authentication → MFA Verification → Role Assignment → Permission Chec
 - TENANCY: see `TENANCY.md`
 - IMPORT WORKFLOW: see `IMPORT_WORKFLOW.md`
 - OPERATIONS: see `OPERATION.md`
+- OBSERVABILITY: see `OBSERVABILITY.md`
+- QUEUES: see `QUEUES.md`
+- AUTH: see `AUTH.md`
+- BACKUP/DR: see `BACKUP_DR.md`
+- AUDIT: see `AUDIT_POLICY.md`
+- DSR: see `DSR.md`
+- CI: see `CI_WORKFLOW.md`
+- RELEASE: see `RELEASE_CHECKLIST.md`
+- ACCEPTANCE: see `PRODUCTION_ACCEPTANCE.md`
 - TEST PLAN: see `TEST_PLAN.md`
 
 ## 🔧 Configuration
