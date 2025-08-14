@@ -148,6 +148,14 @@ User Authentication → MFA Verification → Role Assignment → Permission Chec
 - `POST /api/admin/users` - Create user
 - `GET /api/admin/audit-logs` - View audit logs
 
+## 📚 Canonical Docs
+
+- SECURITY: see `SECURITY.md`
+- TENANCY: see `TENANCY.md`
+- IMPORT WORKFLOW: see `IMPORT_WORKFLOW.md`
+- OPERATIONS: see `OPERATION.md`
+- TEST PLAN: see `TEST_PLAN.md`
+
 ## 🔧 Configuration
 
 ### Environment Variables
