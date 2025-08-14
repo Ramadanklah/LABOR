@@ -152,6 +152,8 @@ User Authentication → MFA Verification → Role Assignment → Permission Chec
 
 ### Environment Variables
 
+Note: The following values are examples for local development only. Do not commit real secrets. For production, use a secrets manager and CI/CD injection.
+
 #### Database
 ```env
 DATABASE_URL=postgresql://username:password@localhost:5432/lab_results_db
@@ -161,7 +163,7 @@ DATABASE_TIMEOUT=30000
 
 #### Security
 ```env
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
+JWT_SECRET=dev-only-change-me
 JWT_ACCESS_TOKEN_EXPIRY=15m
 JWT_REFRESH_TOKEN_EXPIRY=7d
 BCRYPT_ROUNDS=12
@@ -170,7 +172,7 @@ BCRYPT_ROUNDS=12
 #### Redis
 ```env
 REDIS_URL=redis://localhost:6379
-REDIS_PASSWORD=your-redis-password
+REDIS_PASSWORD=dev-only
 ```
 
 #### Storage
@@ -178,8 +180,8 @@ REDIS_PASSWORD=your-redis-password
 STORAGE_TYPE=local  # local, s3, minio
 S3_BUCKET=lab-results-storage
 S3_REGION=eu-central-1
-S3_ACCESS_KEY=your-access-key
-S3_SECRET_KEY=your-secret-key
+S3_ACCESS_KEY=dev-only
+S3_SECRET_KEY=dev-only
 ```
 
 #### Monitoring

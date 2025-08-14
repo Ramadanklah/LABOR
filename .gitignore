@@ -1,0 +1,28 @@
+# Environment files
+.env
+.env.*
+server/.env
+server/.env.*
+
+# Logs
+logs/
+server/logs/
+*.log
+
+# Keys and certificates
+*.pem
+*.ppk
+*.p12
+*.keystore
+*.jks
+*.key
+id_rsa
+id_ed25519
+
+# Node modules
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Misc
+*.DS_Store

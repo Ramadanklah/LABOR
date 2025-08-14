@@ -1,5 +1,14 @@
 #!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
+. "$(dirname "$0")/_/husky.sh"
+
+if command -v detect-secrets >/dev/null 2>&1; then
+  detect-secrets scan --baseline .secrets.baseline || {
+    echo "Secret scan failed. Commit aborted." >&2
+    exit 1
+  }
+else
+  echo "detect-secrets not installed; skipping secret scan (CI will enforce)." >&2
+fi
 
 echo "🔍 Running pre-commit checks..."
 
