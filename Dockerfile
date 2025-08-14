@@ -1,85 +1,73 @@
-# Multi-stage build for production optimization
+# Multi-stage build for production
 FROM node:18-alpine AS base
 
-# Install security updates and dependencies
-RUN apk update && apk upgrade && \
-    apk add --no-cache dumb-init && \
-    addgroup -g 1001 -S nodejs && \
-    adduser -S nextjs -u 1001
+# Install dependencies for native modules
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    cairo-dev \
+    jpeg-dev \
+    pango-dev \
+    musl-dev \
+    giflib-dev \
+    pixman-dev \
+    pangomm-dev \
+    libjpeg-turbo-dev \
+    freetype-dev \
+    && rm -rf /var/cache/apk/*
 
 # Set working directory
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
-COPY client/package*.json ./client/
-COPY server/package*.json ./server/
+COPY prisma ./prisma/
 
-# Frontend build stage
-FROM base AS frontend-builder
-WORKDIR /app/client
-
-# Install frontend dependencies
-COPY client/package*.json ./
+# Install dependencies
 RUN npm ci --only=production && npm cache clean --force
 
-# Copy frontend source
-COPY client/ ./
+# Generate Prisma client
+RUN npx prisma generate
 
-# Build frontend for production
-RUN npm run build
+# Development stage
+FROM base AS development
 
-# Backend build stage
-FROM base AS backend-builder
-WORKDIR /app/server
+# Install dev dependencies
+RUN npm ci
 
-# Install backend dependencies
-COPY server/package*.json ./
-RUN npm ci --only=production && npm cache clean --force
+# Copy source code
+COPY . .
 
-# Copy backend source
-COPY server/ ./
+# Expose port
+EXPOSE 5000
 
-# Production stage
-FROM node:18-alpine AS production
+# Start development server
+CMD ["npm", "run", "dev"]
 
-# Install security updates
-RUN apk update && apk upgrade && \
-    apk add --no-cache dumb-init && \
-    addgroup -g 1001 -S nodejs && \
-    adduser -S appuser -u 1001
+# Production build stage
+FROM base AS production
 
-# Set working directory
-WORKDIR /app
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
 
-# Copy built frontend from builder stage
-COPY --from=frontend-builder --chown=appuser:nodejs /app/client/dist ./client/dist
+# Copy source code
+COPY --chown=nodejs:nodejs . .
 
-# Copy backend from builder stage
-COPY --from=backend-builder --chown=appuser:nodejs /app/server ./server
-
-# Create logs directory
-RUN mkdir -p /app/logs && chown appuser:nodejs /app/logs
+# Create necessary directories
+RUN mkdir -p /app/logs /app/exports /app/uploads && \
+    chown -R nodejs:nodejs /app/logs /app/exports /app/uploads
 
 # Switch to non-root user
-USER appuser
-
-# Set environment variables
-ENV NODE_ENV=production
-ENV PORT=5000
+USER nodejs
 
 # Expose port
 EXPOSE 5000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:5000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+    CMD node healthcheck.js
 
-# Start application with dumb-init for proper signal handling
-ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "server/server.js"]
-
-# Metadata
-LABEL maintainer="Lab Results System"
-LABEL version="1.0.0"
-LABEL description="Production-ready laboratory results management system"
+# Start production server
+CMD ["npm", "start"]

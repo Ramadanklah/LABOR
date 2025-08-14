@@ -1,0 +1,259 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: lab-results-postgres
+    environment:
+      POSTGRES_DB: lab_results_db
+      POSTGRES_USER: labuser
+      POSTGRES_PASSWORD: secure_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - lab-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labuser -d lab_results_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis for caching and job queues
+  redis:
+    image: redis:7-alpine
+    container_name: lab-results-redis
+    command: redis-server --appendonly yes --requirepass redis_password
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - lab-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # MinIO for file storage (S3-compatible)
+  minio:
+    image: minio/minio:latest
+    container_name: lab-results-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_DOMAIN: minio.local
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console
+    networks:
+      - lab-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+
+  # Create MinIO bucket
+  createbuckets:
+    image: minio/mc:latest
+    container_name: lab-results-createbuckets
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: >
+      sh -c "
+        sleep 10 &&
+        mc alias set myminio http://minio:9000 minioadmin minioadmin123 &&
+        mc mb myminio/lab-results-storage --ignore-existing &&
+        mc mb myminio/ldt-quarantine --ignore-existing &&
+        mc mb myminio/exports --ignore-existing &&
+        mc policy set public myminio/exports &&
+        echo 'Buckets created successfully'
+      "
+    networks:
+      - lab-network
+    restart: "no"
+
+  # Server application
+  server:
+    build:
+      context: ./server
+      dockerfile: ../Dockerfile
+      target: development
+    container_name: lab-results-server
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      DATABASE_URL: postgresql://labuser:secure_password@postgres:5432/lab_results_db
+      REDIS_URL: redis://:redis_password@redis:6379
+      STORAGE_TYPE: minio
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin123
+      S3_BUCKET: lab-results-storage
+      JWT_SECRET: your-super-secret-jwt-key-change-in-production
+      SEED_DEMO_DATA: "true"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+      - server_logs:/app/logs
+      - server_exports:/app/exports
+    ports:
+      - "5000:5000"
+    networks:
+      - lab-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Client application
+  client:
+    build:
+      context: ./client
+      dockerfile: ../Dockerfile.client
+    container_name: lab-results-client
+    environment:
+      VITE_API_BASE_URL: http://localhost:5000
+      VITE_APP_NAME: Lab Results System
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    networks:
+      - lab-network
+    depends_on:
+      - server
+    restart: unless-stopped
+
+  # Worker for background jobs
+  worker:
+    build:
+      context: ./server
+      dockerfile: ../Dockerfile
+      target: development
+    container_name: lab-results-worker
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://labuser:secure_password@postgres:5432/lab_results_db
+      REDIS_URL: redis://:redis_password@redis:6379
+      STORAGE_TYPE: minio
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin123
+      S3_BUCKET: lab-results-storage
+      JWT_SECRET: your-super-secret-jwt-key-change-in-production
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+      - worker_logs:/app/logs
+    networks:
+      - lab-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["npm", "run", "worker"]
+    restart: unless-stopped
+
+  # Monitoring stack
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: lab-results-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - lab-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: lab-results-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin123
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3001:3000"
+    networks:
+      - lab-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: lab-results-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: true
+    ports:
+      - "16686:16686"  # UI
+      - "14268:14268"  # HTTP collector
+      - "4317:4317"    # OTLP gRPC
+    networks:
+      - lab-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_data:
+    driver: local
+  server_logs:
+    driver: local
+  server_exports:
+    driver: local
+  worker_logs:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  lab-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

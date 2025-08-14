@@ -1,678 +1,356 @@
-# Labor Results Web App
+# Lab Results Management System
 
-A comprehensive full-stack web application for managing and viewing laboratory results, built with React frontend and Node.js/Express backend. The system supports German LDT (Labor Daten Transfer) standard for laboratory data exchange and integrates with Mirth Connect for real-time data ingestion.
+A comprehensive, multi-tenant healthcare platform for managing laboratory results with advanced security, compliance, and interoperability features.
 
-## 🚀 Features
+## 🏥 Features
 
 ### Core Functionality
-- **Secure Authentication**: Multi-factor login with BSNR, LANR, and password
-- **Role-Based Access Control**: Different permissions for different user types
-- **Results Dashboard**: View laboratory results in an organized, responsive table format
-- **Advanced Search & Filter**: Search by patient name or result ID, filter by status and type
-- **Real-time Updates**: Refresh functionality to get latest results
-- **Responsive Design**: Modern UI built with Tailwind CSS
-
-### Download & Export Features
-- **LDT Format**: Export results as LDT (German laboratory standard)
-- **PDF Reports**: Generate professional laboratory reports
-- **Individual & Bulk Downloads**: Download single results or all filtered results
-- **Batch Processing**: Process multiple results simultaneously
-
-### Mirth Connect Integration
-- **Webhook Endpoint**: Receive laboratory data from Mirth Connect
-- **LDT Message Processing**: Parse and store incoming LDT XML messages
-- **Real-time Data Ingestion**: Process data as it arrives
-- **Message Validation**: Validate incoming LDT format
-- **Error Handling**: Comprehensive error handling for malformed messages
-
-### Security & Performance
-- **JWT Authentication**: Secure token-based authentication
-- **Rate Limiting**: Protection against abuse
-- **CORS Configuration**: Secure cross-origin requests
-- **Compression**: Response compression for better performance
-- **Caching**: Intelligent caching for improved response times
-- **Logging**: Comprehensive logging with Winston
-
-## 📁 Project Structure
-
-```
-labor-results-app/
-├── client/                 # React frontend
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── LoginPage.jsx
-│   │   │   └── ResultsDashboard.jsx
-│   │   ├── utils/
-│   │   │   └── api.js
-│   │   ├── App.jsx
-│   │   └── main.jsx
-│   ├── public/
-│   ├── package.json
-│   ├── tailwind.config.js
-│   └── vite.config.js
-├── server/                 # Node.js/Express backend
-│   ├── server.js          # Main server file
-│   ├── models/
-│   │   └── User.js
-│   ├── utils/
-│   │   ├── ldtGenerator.js
-│   │   ├── ldtParser.js
-│   │   └── pdfGenerator.js
-│   ├── db/
-│   ├── logs/
-│   └── package.json
-├── scripts/               # Utility scripts
-├── docker-compose.prod.yml
-├── Dockerfile
-├── .env.example
-├── start-dev.sh
-├── start-dev.bat
-└── README.md
-```
-
-## 🛠️ Prerequisites
-
-- **Node.js**: v18 or higher
-- **npm**: v8 or higher
-- **Git**: For version control
-- **Docker**: For production deployment (optional)
-- **PostgreSQL**: For production database (optional)
-
-## 🚀 Installation & Setup
-
-### 1. Clone the Repository
-
-```bash
-git clone <repository-url>
-cd labor-results-app
-```
-
-### 2. Environment Configuration
-
-Copy the environment file and configure it:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your configuration:
-
-```env
-# Development Environment Configuration
-NODE_ENV=development
-PORT=5000
-
-# JWT Configuration (REQUIRED for authentication)
-JWT_SECRET=your-super-secure-jwt-secret-here-minimum-256-bits
-JWT_EXPIRATION=24h
-
-# Logging
-LOG_LEVEL=info
-
-# Lab Information (for reports/documents)
-LAB_NAME=Your Laboratory Results System
-LAB_STREET=Medical Center Street 1
-LAB_ZIP=12345
-LAB_CITY=Medical City
-LAB_PHONE=+49-123-456789
-LAB_EMAIL=info@your-lab.com
-
-# Database Configuration (for PostgreSQL)
-DATABASE_URL=postgresql://labuser:secure_password@localhost:5432/lab_results
-
-# Redis Configuration (if using caching)
-REDIS_URL=redis://localhost:6379
-
-# Frontend Configuration
-FRONTEND_URL=http://localhost:3000
-```
-
-### 3. Backend Setup
-
-```bash
-cd server
-npm install
-npm start
-```
-
-The backend server will start on http://localhost:5000
-
-### 4. Frontend Setup
-
-Open a new terminal window:
-
-```bash
-cd client
-npm install
-npm run dev
-```
-
-The Vite development server will start on http://localhost:3000
-
-### 5. Quick Start (Both Servers)
-
-Use the convenience script to start both servers at once:
-
-**Linux/Mac:**
-```bash
-chmod +x start-dev.sh
-./start-dev.sh
-```
-
-**Windows:**
-```batch
-start-dev.bat
-```
-
-This will start both backend and frontend servers simultaneously.
-
-## 🔐 Authentication & Demo Credentials
-
-### Demo Credentials
-
-For testing purposes, use these demo credentials:
-
-**Doctor User:**
-- **BSNR**: `123456789`
-- **LANR**: `1234567`
-- **Password**: `doctor123`
-
-**Lab Technician User:**
-- **BSNR**: `123456789`
-- **LANR**: `1234568`
-- **Password**: `lab123`
-
-**Admin User:**
-- **BSNR**: `999999999`
-- **LANR**: `9999999`
-- **Password**: `admin123`
-
-### Authentication Flow
-
-1. **Login**: User provides BSNR, LANR, and password
-2. **Validation**: Backend validates credentials against user database
-3. **Token Generation**: JWT token is generated and returned
-4. **Session Management**: Token is stored in browser and used for API calls
-5. **Authorization**: All subsequent requests require valid JWT token
-
-## 📊 API Endpoints
-
-### Authentication Endpoints
-
-#### POST `/api/login`
-Authenticate user with BSNR, LANR, and password.
-
-**Request Body:**
-```json
-{
-  "bsnr": "123456789",
-  "lanr": "1234567", 
-  "password": "securepassword"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Login successful",
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-### Results Endpoints
-
-#### GET `/api/results`
-Retrieve all laboratory results for authenticated user.
-
-**Headers:** `Authorization: Bearer <token>`
-
-**Response:**
-```json
-{
-  "success": true,
-  "results": [
-    {
-      "id": "res001",
-      "date": "2023-01-15",
-      "type": "Blood Count",
-      "status": "Final",
-      "patient": "Max Mustermann",
-      "bsnr": "123456789",
-      "lanr": "1234567",
-      "tests": [
-        {
-          "name": "Hemoglobin",
-          "value": "14.2",
-          "unit": "g/dL",
-          "referenceRange": "13.5-17.5"
-        }
-      ]
-    }
-  ]
-}
-```
-
-### Mirth Connect Integration
-
-#### POST `/api/mirth-webhook`
-Receive laboratory data from Mirth Connect in LDT format.
-
-**Headers:** `Content-Type: text/plain` or `application/xml`
-
-**Request Body:** LDT format (supports both XML and line-based formats)
-
-**XML Format (Legacy):**
-```xml
-<column1>0278000921818LABOR_RESULTS_V2.1</column1>
-<column1>022800091032024XXXXX</column1>
-<column1>022800091042230000</column1>
-```
-
-**Line-based Format (Current):**
-```
-01380008230
-014810000204
-0199212LDT1014.01
-0180201798115000
-0220203Labor Potsdam
-0260205Charlottenstr. 72
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "messageId": "uuid-12345",
-  "recordCount": 3,
-  "message": "LDT message processed successfully"
-}
-```
-
-**Error Response:**
-```json
-{
-  "success": false,
-  "message": "No valid LDT XML payload detected"
-}
-```
-
-### Download Endpoints
-
-#### GET `/api/download/ldt`
-Download all results as LDT format (German laboratory standard).
-
-**Headers:** `Authorization: Bearer <token>`
-
-**Response:** Binary file download (application/octet-stream)
-**Filename:** `lab_results_YYYY-MM-DD.ldt`
-
-#### GET `/api/download/pdf`
-Download all results as PDF report.
-
-**Headers:** `Authorization: Bearer <token>`
-
-**Response:** Binary file download (application/pdf)
-**Filename:** `lab_results_YYYY-MM-DD.pdf`
-
-#### GET `/api/download/ldt/:resultId`
-Download specific result as LDT format.
-
-**Parameters:** `resultId` - The ID of the result to download
-**Headers:** `Authorization: Bearer <token>`
-
-**Response:** Binary file download (application/octet-stream)
-**Filename:** `result_RESULTID_YYYY-MM-DD.ldt`
-
-#### GET `/api/download/pdf/:resultId`
-Download specific result as PDF report.
-
-**Parameters:** `resultId` - The ID of the result to download
-**Headers:** `Authorization: Bearer <token>`
-
-**Response:** Binary file download (application/pdf)
-**Filename:** `result_RESULTID_YYYY-MM-DD.pdf`
-
-### Health Check
-
-#### GET `/api/health`
-Check server health status.
-
-**Response:**
-```json
-{
-  "status": "healthy",
-  "timestamp": "2023-01-15T10:30:00.000Z",
-  "version": "1.0.0"
-}
-```
-
-## 🔧 LDT Message Processing
-
-### LDT Format Specification
-
-The system processes LDT (Labor Daten Transfer) messages according to the German standard:
-
-#### Supported Formats
-- **Line-based Format**: Each line is a separate LDT record (current standard)
-- **XML Format**: Legacy format with `<column1>` tags (backward compatibility)
-
-#### Record Types
-- **8000**: Header record (software version, creation date/time)
-- **8100**: Practice/Lab identification
-- **8200**: Patient data
-- **8300**: Request data
-- **8400**: Result data
-- **8500**: Footer record
-
-#### Message Structure
-Each LDT record follows this format:
-```
-[LENGTH][RECORD_TYPE][FIELD_ID][CONTENT]
-```
-
-**Standard Records (11+ characters):**
-```
-01380008230
-014810000204
-0199212LDT1014.01
-```
-
-**Short Records (8 characters):**
-```
-01091064
-0108609K
-01031091
-```
-
-**Field ID Types:**
-- Numeric: `8230`, `0020`, `9218`
-- Alphanumeric: `LDT1`, `KLEM`, `V001`
-- Special characters: `*IMA` (for image paths)
-
-### Mirth Connect Integration
-
-#### Configuration in Mirth Connect
-
-1. **Create HTTP Sender Channel**
-   - **URL**: `http://your-server:5000/api/mirth-webhook`
-   - **Method**: POST
-   - **Content Type**: `text/plain` or `application/xml`
-
-2. **Message Template**
-   ```xml
-   <column1>${message.encodedData}</column1>
+- **Multi-tenant Architecture**: Complete tenant isolation with subdomain-based routing
+- **LDT Message Processing**: Robust ingestion pipeline with validation and quarantine
+- **Lab Results Management**: Complete CRUD operations with audit trails
+- **Export System**: PDF, CSV, LDT, and FHIR exports with background processing
+- **FHIR Integration**: Full FHIR R4 compliance for healthcare interoperability
+
+### Security & Compliance
+- **Row-Level Security (RLS)**: Database-level tenant isolation
+- **Multi-Factor Authentication (MFA)**: TOTP-based 2FA for all users
+- **Role-Based Access Control (RBAC)**: Granular permissions system
+- **Audit Logging**: Comprehensive audit trails for compliance
+- **Data Encryption**: At-rest and in-transit encryption
+- **GDPR Compliance**: Data retention and deletion policies
+
+### Performance & Monitoring
+- **OpenTelemetry Integration**: Distributed tracing and metrics
+- **Prometheus Monitoring**: Comprehensive SLOs and alerting
+- **Redis Caching**: High-performance caching layer
+- **Background Job Processing**: BullMQ for async operations
+- **Health Checks**: Automated health monitoring
+
+### Developer Experience
+- **TypeScript Support**: Full type safety
+- **ESLint & Prettier**: Code quality and formatting
+- **Husky Git Hooks**: Pre-commit quality checks
+- **Docker Multi-stage Builds**: Optimized containerization
+- **Comprehensive Testing**: Unit, integration, and e2e tests
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Docker & Docker Compose
+- Node.js 18+
+- PostgreSQL 15+
+- Redis 7+
+
+### Development Setup
+
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd lab-results-system
    ```
 
-3. **Error Handling**
-   - Configure retry logic for failed requests
-   - Set appropriate timeout values
-   - Monitor response codes
+2. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your configuration
+   ```
 
-#### Message Processing Flow
+3. **Start the development environment**
+   ```bash
+   docker-compose up -d
+   ```
 
-1. **Reception**: Webhook receives LDT XML payload
-2. **Validation**: System validates XML structure and LDT format
-3. **Parsing**: LDT parser extracts individual records
-4. **Storage**: Records are stored in database
-5. **Response**: Success/error response sent back to Mirth Connect
+4. **Run database migrations**
+   ```bash
+   docker-compose exec server npm run db:migrate
+   ```
 
-#### Error Handling
+5. **Seed demo data (optional)**
+   ```bash
+   docker-compose exec server npm run db:seed
+   ```
 
-The system handles various error scenarios:
+6. **Access the application**
+   - Frontend: http://localhost:3000
+   - Backend API: http://localhost:5000
+   - Grafana: http://localhost:3001 (admin/admin123)
+   - Prometheus: http://localhost:9090
+   - Jaeger: http://localhost:16686
 
-- **Invalid XML**: Returns 400 Bad Request
-- **Malformed LDT**: Returns 422 Unprocessable Entity
-- **Server Errors**: Returns 500 Internal Server Error
-- **Rate Limiting**: Returns 429 Too Many Requests
+### Demo Credentials
+```
+Default Tenant:
+- Admin: admin@laborresults.de / admin123
+- Doctor: doctor@laborresults.de / doctor123
+- Lab: lab@laborresults.de / lab123
+
+Demo Tenant:
+- Admin: admin@demo.laborresults.de / demo123
+```
+
+## 🏗️ Architecture
+
+### Multi-Tenancy
+- **Tenant Resolution**: Subdomain-based routing (e.g., `tenant1.laborresults.de`)
+- **Database Isolation**: Row-Level Security (RLS) policies
+- **API Key Management**: Per-tenant API keys with scoped permissions
+- **BSNR Mapping**: Automatic tenant routing based on BSNR codes
+
+### Data Flow
+```
+LDT Message → Validation → Tenant Resolution → Processing → Storage → Normalization
+     ↓
+Quarantine (if malformed) → Retry Logic → Error Handling
+```
+
+### Security Model
+```
+User Authentication → MFA Verification → Role Assignment → Permission Check → Resource Access
+```
+
+## 📊 API Documentation
+
+### Authentication Endpoints
+- `POST /api/auth/login` - User login with MFA
+- `POST /api/auth/refresh` - Refresh access token
+- `POST /api/auth/logout` - User logout
+- `POST /api/auth/mfa/setup` - Setup MFA
+- `POST /api/auth/mfa/verify` - Verify MFA token
+
+### LDT Processing
+- `POST /api/ldt/ingest` - Ingest LDT messages
+- `GET /api/ldt/messages` - List LDT messages
+- `GET /api/ldt/messages/:id` - Get LDT message details
+- `POST /api/ldt/messages/:id/retry` - Retry failed message
+
+### Lab Results
+- `GET /api/results` - List lab results
+- `POST /api/results` - Create lab result
+- `GET /api/results/:id` - Get result details
+- `PUT /api/results/:id` - Update result
+- `DELETE /api/results/:id` - Delete result
+
+### Exports
+- `POST /api/exports` - Create export job
+- `GET /api/exports` - List export jobs
+- `GET /api/exports/:id` - Get export status
+- `GET /api/exports/:id/download` - Download export file
+
+### FHIR Endpoints
+- `GET /fhir/Observation` - FHIR Observation resources
+- `GET /fhir/Patient` - FHIR Patient resources
+- `GET /fhir/Practitioner` - FHIR Practitioner resources
+
+### Admin Endpoints
+- `GET /api/admin/tenants` - List tenants
+- `POST /api/admin/tenants` - Create tenant
+- `GET /api/admin/users` - List users
+- `POST /api/admin/users` - Create user
+- `GET /api/admin/audit-logs` - View audit logs
+
+## 🔧 Configuration
+
+### Environment Variables
+
+#### Database
+```env
+DATABASE_URL=postgresql://username:password@localhost:5432/lab_results_db
+DATABASE_POOL_SIZE=20
+DATABASE_TIMEOUT=30000
+```
+
+#### Security
+```env
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+JWT_ACCESS_TOKEN_EXPIRY=15m
+JWT_REFRESH_TOKEN_EXPIRY=7d
+BCRYPT_ROUNDS=12
+```
+
+#### Redis
+```env
+REDIS_URL=redis://localhost:6379
+REDIS_PASSWORD=your-redis-password
+```
+
+#### Storage
+```env
+STORAGE_TYPE=local  # local, s3, minio
+S3_BUCKET=lab-results-storage
+S3_REGION=eu-central-1
+S3_ACCESS_KEY=your-access-key
+S3_SECRET_KEY=your-secret-key
+```
+
+#### Monitoring
+```env
+OTEL_ENDPOINT=http://localhost:4317
+METRICS_PORT=9090
+```
 
 ## 🧪 Testing
 
-### Manual Testing
-
-#### 1. Test Backend API Endpoints
-
+### Run Tests
 ```bash
-# Test login
-curl -X POST http://localhost:5000/api/login \
-  -H "Content-Type: application/json" \
-  -d '{"bsnr": "123456789", "lanr": "1234567", "password": "doctor123"}'
-
-# Test results (with token)
-curl -X GET http://localhost:5000/api/results \
-  -H "Authorization: Bearer YOUR_TOKEN"
-
-# Test Mirth Connect webhook
-curl -X POST http://localhost:5000/api/mirth-webhook \
-  -H "Content-Type: text/plain" \
-  -d '<column1>0278000921818LABOR_RESULTS_V2.1</column1>'
-
-# Test LDT download
-curl -X GET http://localhost:5000/api/download/ldt \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -o test_results.ldt
-
-# Test PDF download
-curl -X GET http://localhost:5000/api/download/pdf \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -o test_results.pdf
-```
-
-#### 2. Test Frontend Application
-
-1. **Login Test**
-   - Open http://localhost:3000
-   - Enter demo credentials
-   - Verify successful login
-
-2. **Dashboard Test**
-   - Verify results table displays
-   - Test search functionality
-   - Test filter options
-   - Test download buttons
-
-3. **Download Test**
-   - Test individual result downloads
-   - Test bulk download functionality
-   - Verify file formats (LDT/PDF)
-
-### Automated Testing
-
-```bash
-# Run backend tests
-cd server
+# Unit tests
 npm test
 
-# Run frontend tests
-cd client
-npm test
-
-# Run integration tests
+# Integration tests
 npm run test:integration
+
+# E2E tests
+npm run test:e2e
+
+# Coverage report
+npm run test:coverage
 ```
 
-## 🚀 Production Deployment
+### Test Categories
+- **Unit Tests**: Individual function and component testing
+- **Integration Tests**: API endpoint and database interaction testing
+- **E2E Tests**: Full user workflow testing
+- **Security Tests**: Authentication and authorization testing
+- **Performance Tests**: Load and stress testing
 
-### Docker Deployment
+## 📈 Monitoring & Observability
 
-1. **Build and Run with Docker Compose**
+### Metrics
+- **API Performance**: Request rate, latency, error rates
+- **Database Performance**: Connection pool, query performance
+- **System Resources**: CPU, memory, disk usage
+- **Business Metrics**: LDT processing rate, export generation
 
-```bash
-# Build and start all services
-docker-compose -f docker-compose.prod.yml up -d
+### SLOs (Service Level Objectives)
+- **API Availability**: 99.9%
+- **API Latency**: p95 < 500ms
+- **LDT Processing**: 99% success rate
+- **Export Generation**: 95% success rate
+- **Authentication**: 99% success rate
 
-# Check service status
-docker-compose -f docker-compose.prod.yml ps
+### Alerts
+- Critical: API availability, authentication failures, tenant isolation violations
+- Warning: High resource usage, export failures, security events
 
-# View logs
-docker-compose -f docker-compose.prod.yml logs -f
-```
-
-2. **Environment Configuration**
-
-Create `.env` file for production:
-
-```env
-NODE_ENV=production
-PORT=5000
-JWT_SECRET=your-super-secure-production-jwt-secret
-DATABASE_URL=postgresql://labuser:secure_password@postgres:5432/lab_results
-REDIS_URL=redis://redis:6379
-FRONTEND_URL=https://your-domain.com
-```
-
-### Manual Deployment
-
-1. **Backend Deployment**
-   ```bash
-   cd server
-   npm install --production
-   npm start
-   ```
-
-2. **Frontend Deployment**
-   ```bash
-   cd client
-   npm install
-   npm run build
-   # Serve dist/ folder with web server
-   ```
-
-3. **Database Setup**
-   ```bash
-   # PostgreSQL setup
-   createdb lab_results
-   psql lab_results < database/init.sql
-   ```
-
-## 🔒 Security Considerations
+## 🔒 Security Features
 
 ### Authentication & Authorization
+- **Multi-Factor Authentication**: TOTP-based 2FA
 - **JWT Tokens**: Secure token-based authentication
-- **Password Hashing**: bcrypt for password security
-- **Role-Based Access**: Different permissions for different users
-- **Session Management**: Proper token expiration and refresh
-
-### API Security
-- **Rate Limiting**: Protection against abuse
-- **CORS Configuration**: Secure cross-origin requests
-- **Input Validation**: All inputs are validated and sanitized
-- **Error Handling**: Secure error messages without information leakage
+- **Refresh Token Rotation**: Automatic token refresh with reuse detection
+- **Role-Based Access Control**: Granular permission system
+- **API Key Management**: Scoped API keys for integrations
 
 ### Data Protection
-- **HTTPS**: Use HTTPS in production
-- **Data Encryption**: Encrypt sensitive data at rest
-- **Audit Logging**: Track all user actions
-- **Backup Security**: Secure database backups
+- **Row-Level Security**: Database-level tenant isolation
+- **Data Encryption**: AES-256 encryption at rest and in transit
+- **Audit Logging**: Comprehensive audit trails
+- **Data Retention**: Configurable retention policies
+- **GDPR Compliance**: Right to be forgotten implementation
 
-## 📈 Performance Optimization
+### Network Security
+- **HTTPS Only**: TLS 1.3 encryption
+- **Security Headers**: HSTS, CSP, X-Frame-Options
+- **Rate Limiting**: IP and user-based rate limiting
+- **CORS Configuration**: Strict CORS policies
+- **Input Validation**: Comprehensive input sanitization
 
-### Backend Optimizations
-- **Caching**: Redis cache for frequently accessed data
-- **Compression**: Response compression for better performance
-- **Database Indexing**: Optimized database queries
-- **Connection Pooling**: Efficient database connections
+## 🚀 Deployment
 
-### Frontend Optimizations
-- **Code Splitting**: Lazy loading of components
-- **Image Optimization**: Compressed images and lazy loading
-- **Bundle Optimization**: Minified and optimized bundles
-- **CDN Integration**: Content delivery network for static assets
+### Production Deployment
 
-## 🐛 Troubleshooting
+1. **Environment Setup**
+   ```bash
+   # Set production environment variables
+   export NODE_ENV=production
+   export DATABASE_URL=your-production-db-url
+   export REDIS_URL=your-production-redis-url
+   ```
 
-### Common Issues
+2. **Database Migration**
+   ```bash
+   npm run db:migrate
+   ```
 
-#### 1. CORS Errors
-**Problem**: Browser blocks requests due to CORS policy
-**Solution**: Verify CORS configuration in server.js
+3. **Build and Deploy**
+   ```bash
+   # Build production images
+   docker-compose -f docker-compose.prod.yml build
 
-#### 2. Authentication Failures
-**Problem**: Login not working
-**Solution**: Check JWT_SECRET in .env file
+   # Deploy
+   docker-compose -f docker-compose.prod.yml up -d
+   ```
 
-#### 3. Download Failures
-**Problem**: Downloads not working
-**Solution**: Verify file permissions and disk space
-
-#### 4. Mirth Connect Integration Issues
-**Problem**: Webhook not receiving data
-**Solution**: Check network connectivity and firewall settings
-
-### Debug Mode
-
-Enable debug logging:
-
-```env
-LOG_LEVEL=debug
-NODE_ENV=development
-```
-
-### Log Files
-
-Check log files for detailed error information:
-
+### Kubernetes Deployment
 ```bash
-# Backend logs
-tail -f server/logs/error.log
-tail -f server/logs/combined.log
+# Apply Kubernetes manifests
+kubectl apply -f k8s/
 
-# Docker logs
-docker-compose -f docker-compose.prod.yml logs -f app
+# Check deployment status
+kubectl get pods -n lab-results
 ```
 
-## 📚 Additional Documentation
+## 📚 Development
 
-- **[API Download Guide](./API_DOWNLOAD_GUIDE.md)** - Detailed API documentation
-- **[Testing Guide](./TESTING.md)** - Comprehensive testing instructions
-- **[Production Readiness Report](./PRODUCTION_READINESS_REPORT.md)** - Production deployment guide
-- **[Quick Fix Guide](./QUICK_FIX_GUIDE.md)** - Common issues and solutions
-- **[Windows Setup Guide](./WINDOWS_SETUP_GUIDE.md)** - Windows-specific setup instructions
+### Project Structure
+```
+├── server/                 # Backend application
+│   ├── models/            # Data models
+│   ├── routes/            # API routes
+│   ├── middleware/        # Express middleware
+│   ├── utils/             # Utility functions
+│   └── tests/             # Backend tests
+├── client/                # Frontend application
+│   ├── src/
+│   │   ├── components/    # React components
+│   │   ├── pages/         # Page components
+│   │   ├── hooks/         # Custom hooks
+│   │   ├── services/      # API services
+│   │   └── utils/         # Utility functions
+│   └── tests/             # Frontend tests
+├── prisma/                # Database schema and migrations
+├── monitoring/            # Monitoring configuration
+├── scripts/               # Deployment and utility scripts
+└── docs/                  # Documentation
+```
 
-## 🤝 Contributing
+### Code Quality
+- **ESLint**: Code linting with healthcare-specific rules
+- **Prettier**: Code formatting
+- **Husky**: Git hooks for quality checks
+- **TypeScript**: Type safety
+- **Jest**: Testing framework
 
+### Contributing
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Guidelines
-
-- Follow ESLint configuration
-- Write tests for new features
-- Update documentation for API changes
-- Use conventional commit messages
+2. Create a feature branch
+3. Make your changes
+4. Run tests and linting
+5. Submit a pull request
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## 🆘 Support
+
+### Documentation
+- [API Documentation](docs/api.md)
+- [Deployment Guide](docs/deployment.md)
+- [Security Guide](docs/security.md)
+- [Troubleshooting](docs/troubleshooting.md)
+
+### Contact
+- **Email**: support@laborresults.de
+- **Issues**: [GitHub Issues](https://github.com/your-org/lab-results-system/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/your-org/lab-results-system/discussions)
+
+## 🔄 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a detailed history of changes.
+
 ## 🙏 Acknowledgments
 
-- Built following modern React and Express.js best practices
-- Styled with Tailwind CSS for responsive design
-- Designed for integration with Mirth Connect systems
-- Implements German LDT standard for laboratory data exchange
-- Production-ready with comprehensive monitoring and logging
-
-## 📞 Support
-
-For issues and questions:
-
-1. Check the troubleshooting section above
-2. Review the additional documentation files
-3. Check GitHub issues for similar problems
-4. Create a new issue with detailed information
-
-### Contact Information
-
-- **Email**: support@laborresults.com
-- **Documentation**: [Project Wiki](https://github.com/your-repo/wiki)
-- **Issues**: [GitHub Issues](https://github.com/your-repo/issues)
-
----
-
-**Version**: 1.0.0  
-**Last Updated**: 2024  
-**Compatibility**: Node.js 18+, React 18+, Express 5+
+- FHIR community for healthcare interoperability standards
+- Prisma team for the excellent ORM
+- OpenTelemetry community for observability tools
+- All contributors and maintainers
