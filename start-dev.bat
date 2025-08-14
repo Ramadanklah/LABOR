@@ -36,7 +36,7 @@ echo.
 echo Demo credentials:
 echo   BSNR: 123456789
 echo   LANR: 1234567
-echo   Password: securepassword
+echo   Password: dev-only (set via seed.js)
 echo.
 echo Close the terminal windows to stop the servers
 pause

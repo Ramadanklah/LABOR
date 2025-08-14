@@ -6,6 +6,22 @@ on:
   pull_request:
 
 jobs:
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install detect-secrets
+        run: |
+          pip install detect-secrets
+      - name: Run detect-secrets
+        run: |
+          detect-secrets scan --baseline .secrets.baseline
+          detect-secrets audit --no-keyboard --report .secrets.baseline
+
   build-and-test:
     runs-on: ubuntu-latest
     services:
