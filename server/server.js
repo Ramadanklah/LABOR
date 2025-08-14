@@ -1151,7 +1151,16 @@ function validateWebhookSignature(req, res, next) {
     return res.status(401).json({ success: false, message: 'Invalid or expired timestamp' });
   }
 
-  const rawBody = req.body instanceof Buffer ? req.body : Buffer.from(req.body || '');
+  // Enforce request body type to prevent type confusion
+  const bodyIsBuffer = Buffer.isBuffer(req.body);
+  const bodyIsString = typeof req.body === 'string';
+
+  // Only allow Buffer or string; reject everything else (arrays, objects, numbers, booleans, etc.)
+  if (!(bodyIsBuffer || bodyIsString)) {
+    return res.status(400).json({ success: false, message: 'Invalid request body type' });
+  }
+
+  const rawBody = bodyIsBuffer ? req.body : Buffer.from(req.body, 'utf8');
 
   // Verify HMAC SHA256: expected format 'sha256=hex'
   const expected = crypto
