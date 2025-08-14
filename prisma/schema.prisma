@@ -7,9 +7,33 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Multi-tenancy
+model Tenant {
+  id          String   @id @default(uuid())
+  name        String
+  subdomain   String   @unique
+  domain      String?
+  isActive    Boolean  @default(true)
+  config      Json?    // Tenant-specific configuration
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users       User[]
+  results     Result[]
+  observations Observation[]
+  ldtMessages LDTMessage[]
+  exports     Export[]
+  apiKeys     APIKey[]
+  auditLogs   AuditLog[]
+
+  @@map("tenants")
+}
+
+// Enhanced User model with multi-tenancy
 model User {
   id                 String   @id @default(uuid())
-  email              String   @unique
+  email              String
   password           String
   firstName          String
   lastName           String
@@ -19,7 +43,234 @@ model User {
   isActive           Boolean  @default(true)
   isTwoFactorEnabled Boolean  @default(false)
   twoFactorSecret    String?
+  lastLogin          DateTime?
+  loginAttempts      Int      @default(0)
+  lockedUntil        DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
-  lastLogin          DateTime?
+
+  // Multi-tenancy
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Relations
+  refreshTokens      RefreshToken[]
+  auditLogs          AuditLog[]
+  exports            Export[]
+  apiKeys            APIKey[]
+
+  @@unique([email, tenantId])
+  @@unique([bsnr, lanr, tenantId])
+  @@map("users")
+}
+
+// Refresh token management
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("refresh_tokens")
+}
+
+// API Key management
+model APIKey {
+  id          String   @id @default(uuid())
+  name        String
+  key         String   @unique
+  permissions Json     // Array of permissions
+  isActive    Boolean  @default(true)
+  lastUsed    DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Multi-tenancy
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   String
+  user        User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+// Lab Results
+model Result {
+  id              String   @id @default(uuid())
+  patientId       String
+  patientName     String
+  patientBirthDate DateTime?
+  bsnr            String
+  lanr            String
+  orderDate       DateTime
+  resultDate      DateTime
+  status          String   @default("pending") // pending, completed, cancelled
+  priority        String   @default("routine") // routine, urgent, stat
+  notes           String?
+  rawData         Json?    // Original LDT data
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Multi-tenancy
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Relations
+  observations    Observation[]
+  ldtMessages     LDTMessage[]
+
+  @@index([tenantId, createdAt])
+  @@index([bsnr, lanr])
+  @@index([patientId])
+  @@map("results")
+}
+
+// Lab Observations/Values
+model Observation {
+  id          String   @id @default(uuid())
+  resultId    String
+  result      Result   @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  code        String   // LOINC code
+  name        String   // Test name
+  value       String
+  unit        String?
+  referenceRange String?
+  interpretation String? // high, low, normal, critical
+  rawValue    String   // Original value from LDT
+  normalizedValue String? // Normalized value
+  normalizedUnit String? // UCUM unit
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Multi-tenancy
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([code])
+  @@map("observations")
+}
+
+// LDT Message Processing
+model LDTMessage {
+  id              String   @id @default(uuid())
+  messageId       String   @unique // Original message ID
+  idempotencyKey  String   @unique // For deduplication
+  status          String   @default("pending") // pending, processed, failed, quarantined
+  rawMessage      String   // Original LDT content
+  parsedData      Json?    // Parsed LDT data
+  errorMessage    String?
+  retryCount      Int      @default(0)
+  processedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Multi-tenancy
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Relations
+  resultId        String?
+  result          Result?  @relation(fields: [resultId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([status])
+  @@map("ldt_messages")
+}
+
+// Quarantine for malformed messages
+model LDTQuarantine {
+  id              String   @id @default(uuid())
+  messageId       String   @unique
+  rawMessage      String
+  errorDetails    Json
+  retryCount      Int      @default(0)
+  lastRetry       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("ldt_quarantine")
+}
+
+// Export/Download Jobs
+model Export {
+  id          String   @id @default(uuid())
+  type        String   // pdf, ldt, csv, fhir
+  status      String   @default("pending") // pending, processing, completed, failed
+  filters     Json?    // Export filters
+  filePath    String?  // Generated file path
+  fileSize    Int?     // File size in bytes
+  downloadUrl String?  // Signed download URL
+  expiresAt   DateTime? // URL expiration
+  errorMessage String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Multi-tenancy
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   String
+  user        User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([status])
+  @@map("exports")
+}
+
+// Audit Logging
+model AuditLog {
+  id          String   @id @default(uuid())
+  action      String   // login, logout, create, update, delete, download, etc.
+  resource    String?  // user, result, observation, etc.
+  resourceId  String?  // ID of the affected resource
+  details     Json?    // Additional details
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  // Multi-tenancy
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([action])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+// Usage Tracking for Billing
+model UsageEvent {
+  id          String   @id @default(uuid())
+  eventType   String   // results_ingested, pdf_generated, ldt_exported, api_call
+  quantity    Int      @default(1)
+  metadata    Json?    // Additional event data
+  createdAt   DateTime @default(now())
+
+  // Multi-tenancy
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([eventType])
+  @@map("usage_events")
+}
+
+// BSNR to Tenant Mapping for Mirth Routing
+model BSNRMapping {
+  id          String   @id @default(uuid())
+  bsnr        String   @unique
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([bsnr])
+  @@map("bsnr_mappings")
 }

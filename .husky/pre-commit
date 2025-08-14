@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "🔍 Running pre-commit checks..."
+
+# Run lint-staged
+npx lint-staged
+
+# Run type checking for TypeScript files
+if [ -f "tsconfig.json" ]; then
+  echo "📝 Running TypeScript type checking..."
+  npx tsc --noEmit
+fi
+
+# Run security audit
+echo "🔒 Running security audit..."
+npm audit --audit-level=moderate
+
+echo "✅ Pre-commit checks completed!"
