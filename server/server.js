@@ -1153,6 +1153,11 @@ function validateWebhookSignature(req, res, next) {
 
   const rawBody = req.body instanceof Buffer ? req.body : Buffer.from(req.body || '');
 
+  // Type confusion protection: reject if req.body is an array or unexpected type
+  if (Array.isArray(req.body) || (typeof req.body === 'object' && !(req.body instanceof Buffer) && req.body !== null)) {
+    return res.status(400).json({ success: false, message: 'Invalid request body type' });
+  }
+
   // Verify HMAC SHA256: expected format 'sha256=hex'
   const expected = crypto
     .createHmac('sha256', secret || '')
