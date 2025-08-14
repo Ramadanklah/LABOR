@@ -43,50 +43,33 @@ A comprehensive, multi-tenant healthcare platform for managing laboratory result
 
 ### Development Setup
 
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd lab-results-system
-   ```
+1. Clone and configure
+```bash
+git clone <repository-url>
+cd LABOR
+cp .env.example .env # dev-only values
+```
 
-2. **Set up environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your configuration
-   ```
+2. Start full stack (DB, Redis, MinIO, server, client, monitoring)
+```bash
+docker compose up -d
+```
 
-3. **Start the development environment**
-   ```bash
-   docker-compose up -d
-   ```
+3. Run DB migrations and seed demo data
+```bash
+docker compose exec server npm run db:migrate
+docker compose exec server npm run db:seed # optional
+```
 
-4. **Run database migrations**
-   ```bash
-   docker-compose exec server npm run db:migrate
-   ```
-
-5. **Seed demo data (optional)**
-   ```bash
-   docker-compose exec server npm run db:seed
-   ```
-
-6. **Access the application**
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:5000
-   - Grafana: http://localhost:3001 (admin/admin123)
-   - Prometheus: http://localhost:9090
-   - Jaeger: http://localhost:16686
+4. Access
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:5000
+- Grafana: http://localhost:3001
+- Prometheus: http://localhost:9090
+- Jaeger: http://localhost:16686
 
 ### Demo Credentials
-```
-Default Tenant:
-- Admin: admin@laborresults.de / admin123
-- Doctor: doctor@laborresults.de / doctor123
-- Lab: lab@laborresults.de / lab123
-
-Demo Tenant:
-- Admin: admin@demo.laborresults.de / demo123
-```
+Note: Demo credentials, if used, are for local development only. Do not use in previews or production. See `prisma/seed.js` for seeded users and set secrets via environment variables.
 
 ## 🏗️ Architecture
 
@@ -275,61 +258,29 @@ npm run test:coverage
 
 ## 🚀 Deployment
 
-### Production Deployment
+See `deploy/README.md` for production deployment options.
 
-1. **Environment Setup**
-   ```bash
-   # Set production environment variables
-   export NODE_ENV=production
-   export DATABASE_URL=your-production-db-url
-   export REDIS_URL=your-production-redis-url
-   ```
+- Compose (prod): `docker compose -f deploy/prod-compose.yml --env-file .env.production up -d`
+- Kubernetes: apply manifests under `deploy/k8s/` and integrate with your secret store.
 
-2. **Database Migration**
-   ```bash
-   npm run db:migrate
-   ```
-
-3. **Build and Deploy**
-   ```bash
-   # Build production images
-   docker-compose -f docker-compose.prod.yml build
-
-   # Deploy
-   docker-compose -f docker-compose.prod.yml up -d
-   ```
-
-### Kubernetes Deployment
-```bash
-# Apply Kubernetes manifests
-kubectl apply -f k8s/
-
-# Check deployment status
-kubectl get pods -n lab-results
-```
+CI builds and uploads a server image artifact per commit; see `.github/workflows/ci.yml`.
 
 ## 📚 Development
 
 ### Project Structure
 ```
-├── server/                 # Backend application
+├── server/                 # Backend (Express)
+│   ├── server.js          # API and health endpoints
+│   ├── utils/             # LDT parsing/normalization
 │   ├── models/            # Data models
-│   ├── routes/            # API routes
-│   ├── middleware/        # Express middleware
-│   ├── utils/             # Utility functions
-│   └── tests/             # Backend tests
-├── client/                # Frontend application
-│   ├── src/
-│   │   ├── components/    # React components
-│   │   ├── pages/         # Page components
-│   │   ├── hooks/         # Custom hooks
-│   │   ├── services/      # API services
-│   │   └── utils/         # Utility functions
-│   └── tests/             # Frontend tests
-├── prisma/                # Database schema and migrations
-├── monitoring/            # Monitoring configuration
-├── scripts/               # Deployment and utility scripts
-└── docs/                  # Documentation
+│   └── logs/              # Runtime logs (ignored in git)
+├── client/                 # Frontend (Vite + React)
+│   └── src/               # UI components and pages
+├── prisma/                 # Database schema and migrations
+├── deploy/                 # Production manifests (compose + k8s)
+├── monitoring/             # Prometheus/Grafana config
+├── .github/workflows/      # CI pipelines
+└── README.md               # This file
 ```
 
 ### Code Quality
