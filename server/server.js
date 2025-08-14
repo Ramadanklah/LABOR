@@ -1217,6 +1217,12 @@ app.post(
 
     const rawBody = req.rawBody || req.body;
 
+    // Defensive type check: ensure rawBody is a Buffer
+    if (!(rawBody instanceof Buffer)) {
+      logger.warn('Invalid rawBody type in /api/mirth-webhook', { type: typeof rawBody });
+      return res.status(400).json({ success: false, message: 'Invalid request body type' });
+    }
+
     logger.info('Received payload from Mirth Connect (secured)', {
       contentType: req.headers['content-type'],
       size: rawBody ? rawBody.length : 0,
