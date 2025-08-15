@@ -83,6 +83,18 @@ jobs:
         working-directory: client
         run: npm ci
 
+      - name: Lint server
+        working-directory: server
+        run: npm run lint:check || npm run lint:check
+
+      - name: Lint client
+        working-directory: client
+        run: npm run lint || npm run lint
+
+      - name: Build client
+        working-directory: client
+        run: npm run build
+
       - name: Start server
         working-directory: server
         run: |
