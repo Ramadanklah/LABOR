@@ -1,5 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 
+// Helper: sanitize filename suggested by server headers to prevent injection or invalid characters
+function sanitizeFilename(name) {
+  if (!name || typeof name !== 'string') return '';
+  // Keep only safe characters; replace others with underscore and trim length
+  const cleaned = name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 255);
+  // Prevent hidden or empty names after cleanup
+  if (!cleaned || cleaned.replace(/\.+/g, '').length === 0) {
+    return '';
+  }
+  return cleaned;
+}
+
 // Memoized components for better performance
 const StatusBadge = React.memo(({ status }) => {
   const badgeColor = useMemo(() => {
@@ -23,19 +35,19 @@ const StatusBadge = React.memo(({ status }) => {
 const ResultRow = React.memo(({ result, onDownload, downloading }) => (
   <tr className="hover:bg-gray-50 transition-colors duration-150">
     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-      {result.id}
+      {String(result.id || '')}
     </td>
     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-      {result.date}
+      {String(result.date || '')}
     </td>
     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-      {result.type}
+      {String(result.type || '')}
     </td>
     <td className="px-6 py-4 whitespace-nowrap">
-      <StatusBadge status={result.status} />
+      <StatusBadge status={String(result.status || '')} />
     </td>
     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-      {result.patient}
+      {String(result.patient || '')}
     </td>
     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
       <div className="flex space-x-2">
@@ -77,20 +89,20 @@ function ResultsDashboard({ token, onLogout }) {
     console.log('Filtered after array check:', filtered, 'Length:', filtered.length); // Debug log
 
     if (searchTerm) {
-      const searchLower = searchTerm.toLowerCase();
+      const searchLower = String(searchTerm).toLowerCase();
       filtered = filtered.filter(result => 
-        result.patient.toLowerCase().includes(searchLower) ||
-        result.id.toLowerCase().includes(searchLower) ||
-        result.type.toLowerCase().includes(searchLower)
+        String(result.patient || '').toLowerCase().includes(searchLower) ||
+        String(result.id || '').toLowerCase().includes(searchLower) ||
+        String(result.type || '').toLowerCase().includes(searchLower)
       );
     }
 
     if (statusFilter) {
-      filtered = filtered.filter(result => result.status === statusFilter);
+      filtered = filtered.filter(result => String(result.status || '') === String(statusFilter));
     }
 
     if (typeFilter) {
-      filtered = filtered.filter(result => result.type === typeFilter);
+      filtered = filtered.filter(result => String(result.type || '') === String(typeFilter));
     }
 
     return filtered;
@@ -115,12 +127,12 @@ function ResultsDashboard({ token, onLogout }) {
 
   // Memoized unique values for filters
   const uniqueStatuses = useMemo(() => 
-    [...new Set(results.map(result => result.status))], 
+    [...new Set(results.map(result => String(result.status || '')))], 
     [results]
   );
 
   const uniqueTypes = useMemo(() => 
-    [...new Set(results.map(result => result.type))], 
+    [...new Set(results.map(result => String(result.type || '')))], 
     [results]
   );
 
@@ -200,11 +212,12 @@ function ResultsDashboard({ token, onLogout }) {
       
       // Get filename from response headers or generate one
       const contentDisposition = response.headers.get('content-disposition');
-      const filename = contentDisposition
-        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '')
-        : `lab_results_${resultId || 'all'}_${new Date().toISOString().slice(0, 10)}.${format}`;
+      const rawFilename = contentDisposition
+        ? (contentDisposition.split('filename=')[1] || '').replace(/"/g, '')
+        : '';
+      const safeFilename = sanitizeFilename(rawFilename) || `lab_results_${resultId || 'all'}_${new Date().toISOString().slice(0, 10)}.${format}`;
       
-      link.download = filename;
+      link.download = safeFilename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -232,7 +245,7 @@ function ResultsDashboard({ token, onLogout }) {
               <div className="ml-3">
                 <h3 className="text-sm font-medium text-red-800">Error</h3>
                 <div className="mt-2 text-sm text-red-700">
-                  <p>{error}</p>
+                  <p>{String(error)}</p>
                 </div>
                 <div className="mt-4">
                   <button
@@ -322,7 +335,7 @@ function ResultsDashboard({ token, onLogout }) {
               >
                 <option value="">All Statuses</option>
                 {uniqueStatuses.map(status => (
-                  <option key={status} value={status}>{status}</option>
+                  <option key={status} value={status}>{String(status)}</option>
                 ))}
               </select>
             </div>
@@ -338,7 +351,7 @@ function ResultsDashboard({ token, onLogout }) {
               >
                 <option value="">All Types</option>
                 {uniqueTypes.map(type => (
-                  <option key={type} value={type}>{type}</option>
+                  <option key={type} value={type}>{String(type)}</option>
                 ))}
               </select>
             </div>
