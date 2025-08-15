@@ -1,18 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { visualizer } from 'rollup-plugin-visualizer'
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
-    react(),
-    // Bundle analyzer for development
-    process.env.ANALYZE && visualizer({
-      filename: 'dist/stats.html',
-      open: true,
-      gzipSize: true,
-      brotliSize: true,
-    })
+    react()
   ],
   server: {
     port: 3000,
@@ -31,12 +23,7 @@ export default defineConfig({
         manualChunks: {
           // Split vendor libraries
           'react-vendor': ['react', 'react-dom'],
-          'router': ['react-router-dom'],
-          'query': ['react-query'],
-          // Split large components
-          'dashboard': ['./src/components/ResultsDashboard.jsx'],
-          'user-management': ['./src/components/UserManagement.jsx'],
-          'login': ['./src/components/LoginPage.jsx'],
+          'router': ['react-router-dom']
         },
         // Optimize chunk names for better caching
         chunkFileNames: 'js/[name]-[hash].js',
@@ -54,19 +41,8 @@ export default defineConfig({
         }
       }
     },
-    // Enable minification and compression
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        drop_debugger: true,
-        pure_funcs: ['console.log', 'console.info', 'console.debug'],
-        passes: 2
-      },
-      mangle: {
-        safari10: true
-      }
-    },
+    // Enable minification
+    minify: 'esbuild',
     // Optimize asset size threshold
     assetsInlineLimit: 4096,
     // Disable source maps in production for smaller bundle
@@ -80,14 +56,13 @@ export default defineConfig({
   },
   // Optimize dependency pre-bundling
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react-router-dom', 'react-query'],
+    include: ['react', 'react-dom', 'react-router-dom'],
     exclude: [],
     // Force pre-bundling for better performance
     force: true
   },
   // Enable esbuild optimizations
   esbuild: {
-    drop: ['console', 'debugger'],
-    pure: ['console.log', 'console.info', 'console.debug']
+    drop: ['console', 'debugger']
   }
 })
