@@ -16,9 +16,34 @@ const parseLDT = require('./utils/ldtParser');
 const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
+const swaggerJsdoc = require('swagger-jsdoc');
+const swaggerUi = require('swagger-ui-express');
+const promClient = require('prom-client');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Swagger/OpenAPI setup
+const swaggerDefinition = {
+  openapi: '3.0.0',
+  info: {
+    title: 'Lab Results API',
+    version: '1.0.0',
+    description: 'API documentation for Lab Results Management System',
+  },
+  servers: [
+    { url: 'http://localhost:' + PORT },
+  ],
+};
+
+const swaggerOptions = {
+  swaggerDefinition,
+  apis: ['./server.js'],
+};
+
+const swaggerSpec = swaggerJsdoc(swaggerOptions);
+
+app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Initialize cache with optimized settings
 const cache = new NodeCache({ 
@@ -28,6 +53,19 @@ const cache = new NodeCache({
   maxKeys: 1000, // Maximum cache entries
   deleteOnExpire: true, // Automatically delete expired entries
 });
+
+// Initialize Prometheus metrics
+const collectDefaultMetrics = promClient.collectDefaultMetrics;
+const register = new promClient.Registry();
+collectDefaultMetrics({ register });
+
+// Basic request counter
+const httpRequestCounter = new promClient.Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status'],
+});
+register.registerMetric(httpRequestCounter);
 
 // In-memory token revocation list (basic blacklist)
 const revokedTokens = new Set();
@@ -44,6 +82,23 @@ try {
 
 // Initialize user model
 const userModel = new UserModel();
+
+// Basic tenant resolver: derive tenant from subdomain or header
+function resolveTenantId(req) {
+  const headerTenant = req.headers['x-tenant-id'];
+  if (headerTenant && typeof headerTenant === 'string') return headerTenant;
+  const host = req.headers.host || '';
+  const parts = host.split('.');
+  if (parts.length > 2) {
+    return parts[0];
+  }
+  return process.env.DEFAULT_TENANT_ID || 'default';
+}
+
+app.use((req, res, next) => {
+  req.tenantId = resolveTenantId(req);
+  next();
+});
 
 // Configure logger with performance optimizations
 const logger = winston.createLogger({
@@ -81,6 +136,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       scriptSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'"],
     },
   },
   crossOriginEmbedderPolicy: false,
@@ -108,6 +164,17 @@ app.use(compression({
   memLevel: 8, // Memory usage for compression
 }));
 
+// Metrics endpoint
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    const metrics = await register.metrics();
+    res.end(metrics);
+  } catch (err) {
+    res.status(500).send('Metrics collection error');
+  }
+});
+
 // Rate limiting with different strategies
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -118,6 +185,8 @@ const limiter = rateLimit({
   skipSuccessfulRequests: false,
   skipFailedRequests: false,
 });
+
+app.use(limiter);
 
 const downloadLimiter = rateLimit({
   windowMs: 5 * 60 * 1000, // 5 minutes
@@ -176,7 +245,7 @@ const corsOptions = {
   maxAge: 86400, // Cache preflight requests for 24 hours
 };
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 // Optimized body parsing
 app.use(express.json({ 
@@ -197,13 +266,19 @@ app.use((req, res, next) => {
   
   res.send = function(data) {
     const duration = Date.now() - start;
-    const size = Buffer.byteLength(data, 'utf8');
+    const bodyBuffer = Buffer.isBuffer(data) ? data : Buffer.from(typeof data === 'string' ? data : JSON.stringify(data || ''));
+    const size = bodyBuffer.length;
     
     logger.info(`${req.method} ${req.originalUrl} - ${res.statusCode} - ${duration}ms - ${size}bytes - User: ${req.user?.email || 'anonymous'}`);
     
     // Add performance headers
     res.set('X-Response-Time', `${duration}ms`);
     res.set('X-Response-Size', `${size}bytes`);
+
+    // Increment metrics counter
+    try {
+      httpRequestCounter.inc({ method: req.method, route: req.route?.path || req.originalUrl.split('?')[0], status: String(res.statusCode) });
+    } catch (_) {}
     
     return originalSend.call(this, data);
   };

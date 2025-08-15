@@ -233,6 +233,11 @@ npm run test:coverage
 - Critical: API availability, authentication failures, tenant isolation violations
 - Warning: High resource usage, export failures, security events
 
+### Logging & Tracing
+- Centralized structured logs (JSON) via Winston; forward to ELK/Cloud-native logging.
+- OpenTelemetry traces exported to OTLP endpoint; visualize with Jaeger or Grafana Tempo.
+- Sampling configuration and retention discussed in `OBSERVABILITY.md`.
+
 ## 🔒 Security Features
 
 ### Authentication & Authorization
@@ -264,6 +269,11 @@ See `deploy/README.md` for production deployment options.
 - Kubernetes: apply manifests under `deploy/k8s/` and integrate with your secret store.
 
 CI builds and uploads a server image artifact per commit; see `.github/workflows/ci.yml`.
+
+## 🛡️ Backup & Disaster Recovery
+- Daily logical backups of PostgreSQL with point-in-time recovery (PITR). Store in offsite, encrypted bucket.
+- MinIO/S3 objects versioned with lifecycle policies.
+- Documented restore runbooks in `BACKUP_DR.md`.
 
 ## 📚 Development
 

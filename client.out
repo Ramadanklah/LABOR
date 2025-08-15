@@ -1,0 +1,49 @@
+nohup: ignoring input
+▲ [WARNING] Duplicate key "@types/react-grid-layout" in object literal [duplicate-object-key]
+
+    package.json:153:4:
+      153 │     "@types/react-grid-layout": "^1.3.5",
+          ╵     ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+  The original key "@types/react-grid-layout" is here:
+
+    package.json:144:4:
+      144 │     "@types/react-grid-layout": "^1.3.5",
+          ╵     ~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+▲ [WARNING] Duplicate key "@types/file-saver" in object literal [duplicate-object-key]
+
+    package.json:161:4:
+      161 │     "@types/file-saver": "^2.0.7",
+          ╵     ~~~~~~~~~~~~~~~~~~~
+
+  The original key "@types/file-saver" is here:
+
+    package.json:141:4:
+      141 │     "@types/file-saver": "^2.0.7",
+          ╵     ~~~~~~~~~~~~~~~~~~~
+
+▲ [WARNING] Duplicate key "@types/papaparse" in object literal [duplicate-object-key]
+
+    package.json:168:4:
+      168 │     "@types/papaparse": "^5.3.14",
+          ╵     ~~~~~~~~~~~~~~~~~~
+
+  The original key "@types/papaparse" is here:
+
+    package.json:142:4:
+      142 │     "@types/papaparse": "^5.3.14",
+          ╵     ~~~~~~~~~~~~~~~~~~
+
+failed to load config from /workspace/client/vite.config.js
+error when starting dev server:
+Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'vite' imported from /workspace/client/vite.config.js.timestamp-1755220723165-668a246596bb9.mjs
+    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:256:9)
+    at packageResolve (node:internal/modules/esm/resolve:768:81)
+    at moduleResolve (node:internal/modules/esm/resolve:854:18)
+    at defaultResolve (node:internal/modules/esm/resolve:984:11)
+    at ModuleLoader.defaultResolve (node:internal/modules/esm/loader:780:12)
+    at #cachedDefaultResolve (node:internal/modules/esm/loader:704:25)
+    at ModuleLoader.resolve (node:internal/modules/esm/loader:687:38)
+    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:305:38)
+    at ModuleJob._link (node:internal/modules/esm/module_job:137:49)
