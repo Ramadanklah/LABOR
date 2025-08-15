@@ -9,6 +9,8 @@ The Labor Results Web App now supports downloading laboratory results in two sta
 
 ## API Endpoints
 
+For interactive API documentation, visit the Swagger UI at `/api/docs` when the server is running.
+
 ### 1. Download All Results as LDT
 ```
 GET /api/download/ldt
