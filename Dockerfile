@@ -1,5 +1,5 @@
 # Multi-stage build for production
-FROM node:18-alpine AS base
+FROM node:24.5.0-alpine AS base
 
 # Install dependencies for native modules
 RUN apk add --no-cache \
