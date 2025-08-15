@@ -245,7 +245,7 @@ const corsOptions = {
   maxAge: 86400, // Cache preflight requests for 24 hours
 };
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 // Optimized body parsing
 app.use(express.json({ 
@@ -266,13 +266,19 @@ app.use((req, res, next) => {
   
   res.send = function(data) {
     const duration = Date.now() - start;
-    const size = Buffer.byteLength(data, 'utf8');
+    const bodyBuffer = Buffer.isBuffer(data) ? data : Buffer.from(typeof data === 'string' ? data : JSON.stringify(data || ''));
+    const size = bodyBuffer.length;
     
     logger.info(`${req.method} ${req.originalUrl} - ${res.statusCode} - ${duration}ms - ${size}bytes - User: ${req.user?.email || 'anonymous'}`);
     
     // Add performance headers
     res.set('X-Response-Time', `${duration}ms`);
     res.set('X-Response-Size', `${size}bytes`);
+
+    // Increment metrics counter
+    try {
+      httpRequestCounter.inc({ method: req.method, route: req.route?.path || req.originalUrl.split('?')[0], status: String(res.statusCode) });
+    } catch (_) {}
     
     return originalSend.call(this, data);
   };
