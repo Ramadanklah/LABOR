@@ -1,0 +1,34 @@
+nohup: ignoring input
+[dotenv@17.2.1] injecting env (1) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[32minfo[39m: Server running on http://localhost:5000 {"service":"lab-results-api","timestamp":"2025-08-15T01:18:12.039Z"}
+[32minfo[39m: Environment: development {"service":"lab-results-api","timestamp":"2025-08-15T01:18:12.041Z"}
+[32minfo[39m: User management system initialized with default users: {"service":"lab-results-api","timestamp":"2025-08-15T01:18:12.041Z"}
+[32minfo[39m:   Admin: admin@laborresults.de / admin123 {"service":"lab-results-api","timestamp":"2025-08-15T01:18:12.041Z"}
+[32minfo[39m:   Doctor: doctor@laborresults.de / doctor123 {"service":"lab-results-api","timestamp":"2025-08-15T01:18:12.041Z"}
+[32minfo[39m:   Lab Tech: lab@laborresults.de / lab123 {"service":"lab-results-api","timestamp":"2025-08-15T01:18:12.041Z"}
+Default users initialized successfully
+[32minfo[39m: GET /api/health - 200 - 0ms - 208bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-15T01:18:18.285Z"}
+[32minfo[39m: Successful legacy login for user: doctor@laborresults.de (doctor) {"service":"lab-results-api","timestamp":"2025-08-15T01:18:18.547Z"}
+[32minfo[39m: POST /api/login - 200 - 249ms - 607bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-15T01:18:18.547Z"}
+[32minfo[39m: Successful legacy login for user: lab@laborresults.de (lab_technician) {"service":"lab-results-api","timestamp":"2025-08-15T01:18:18.817Z"}
+[32minfo[39m: POST /api/login - 200 - 263ms - 604bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-15T01:18:18.817Z"}
+[32minfo[39m: Successful legacy login for user: admin@laborresults.de (admin) {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.071Z"}
+[32minfo[39m: POST /api/login - 200 - 247ms - 559bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.071Z"}
+[33mwarn[39m: Failed legacy login attempt: 123456789/1234567 - Invalid credentials {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.325Z"}
+[32minfo[39m: POST /api/login - 401 - 246ms - 49bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.325Z"}
+[32minfo[39m: Successful legacy login for user: doctor@laborresults.de (doctor) {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.578Z"}
+[32minfo[39m: POST /api/login - 200 - 246ms - 607bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.578Z"}
+[32minfo[39m: Fetching results for user: doctor@laborresults.de (doctor) {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.597Z"}
+[32minfo[39m: AUDIT: RESULTS_ACCESSED {"details":{"ipAddress":"::1","limit":50,"page":1,"resultCount":3},"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.598Z","userEmail":"doctor@laborresults.de","userId":"user_1755220692546_kybzoqgrj","userRole":"doctor"}
+[32minfo[39m: GET /api/results - 200 - 6ms - 1299bytes - User: doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.598Z"}
+[32minfo[39m: GET /api/download/ldt - 200 - 1ms - 1118bytes - User: doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.607Z"}
+[32minfo[39m: LDT file downloaded: lab_results_2025-08-15.ldt by doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.608Z"}
+[32minfo[39m: GET /api/download/pdf - 200 - 34ms - 2768bytes - User: doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.650Z"}
+[32minfo[39m: PDF file downloaded: lab_results_2025-08-15.pdf by doctor@laborresults.de {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.650Z"}
+[32minfo[39m: GET /api/results - 401 - 0ms - 51bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.657Z"}
+[33mwarn[39m: MIRTH_WEBHOOK_SECRET not set; rejecting webhook in production {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.664Z"}
+[32minfo[39m: POST /api/mirth-webhook - 401 - 0ms - 60bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.664Z"}
+[33mwarn[39m: MIRTH_WEBHOOK_SECRET not set; rejecting webhook in production {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.671Z"}
+[32minfo[39m: POST /api/mirth-webhook - 401 - 0ms - 60bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.671Z"}
+[33mwarn[39m: MIRTH_WEBHOOK_SECRET not set; rejecting webhook in production {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.677Z"}
+[32minfo[39m: POST /api/mirth-webhook - 401 - 0ms - 60bytes - User: anonymous {"service":"lab-results-api","timestamp":"2025-08-15T01:18:19.677Z"}
