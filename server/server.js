@@ -665,8 +665,11 @@ const mockDatabase = {
         return filteredResults;
         
       case USER_ROLES.LAB_TECHNICIAN:
-        // Lab technicians can see all results
-        return filteredResults;
+        // Lab technicians can only see results explicitly assigned to them
+        return filteredResults.filter(result =>
+          result.assignedTo === user.email ||
+          result.assignedUsers.includes(user.email)
+        );
         
       case USER_ROLES.DOCTOR:
         // Doctors can only see results assigned to them or matching their BSNR/LANR

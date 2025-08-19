@@ -102,14 +102,21 @@ else
     ((TESTS_FAILED++))
 fi
 
-# Test 10: Mirth Connect Webhook (XML format)
+# Test 10: Mirth Connect Webhook (XML format) - signed
+SECRET=${MIRTH_WEBHOOK_SECRET:-test_secret}
+TS_XML=$(date +%s000)
+BODY_XML='<column1>0278000921818LABOR_RESULTS_V2.1</column1><column1>022800091032024XXXXX</column1>'
+SIG_XML=$(printf "%s.%s" "$TS_XML" "$BODY_XML" | openssl dgst -sha256 -hmac "$SECRET" -binary | xxd -p -c 256)
 run_test "Mirth Connect Webhook (XML)" \
-    "curl -s -X POST http://localhost:5000/api/mirth-webhook -H 'Content-Type: text/plain' -d '<column1>0278000921818LABOR_RESULTS_V2.1</column1><column1>022800091032024XXXXX</column1>'" \
+    "curl -s -X POST http://localhost:5000/api/mirth-webhook -H 'Content-Type: text/plain' -H 'X-Timestamp: $TS_XML' -H 'X-Signature: sha256=$SIG_XML' --data-binary \"$BODY_XML\"" \
     '"success":true'
 
-# Test 11: Mirth Connect Webhook (Line-based format)
+# Test 11: Mirth Connect Webhook (Line-based format) - signed
+TS_LN=$(date +%s000)
+BODY_LN=$'01380008230\n014810000204\n0199212LDT1014.01'
+SIG_LN=$(printf "%s.%s" "$TS_LN" "$BODY_LN" | openssl dgst -sha256 -hmac "$SECRET" -binary | xxd -p -c 256)
 run_test "Mirth Connect Webhook (Line-based)" \
-    "curl -s -X POST http://localhost:5000/api/mirth-webhook -H 'Content-Type: text/plain' -d '01380008230\n014810000204\n0199212LDT1014.01'" \
+    "curl -s -X POST http://localhost:5000/api/mirth-webhook -H 'Content-Type: text/plain' -H 'X-Timestamp: $TS_LN' -H 'X-Signature: sha256=$SIG_LN' --data-binary \"$BODY_LN\"" \
     '"success":true'
 
 # Test 12: Invalid Mirth Webhook
