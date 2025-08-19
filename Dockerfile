@@ -1,5 +1,5 @@
 # Multi-stage build for production
-FROM node:24.5.0-alpine AS base
+FROM node:18-alpine AS base
 
 # Install dependencies for native modules
 RUN apk add --no-cache \
@@ -20,8 +20,8 @@ RUN apk add --no-cache \
 # Set working directory
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy package files from server directory
+COPY server/package*.json ./
 COPY prisma ./prisma/
 
 # Install dependencies
@@ -36,8 +36,9 @@ FROM base AS development
 # Install dev dependencies
 RUN npm ci
 
-# Copy source code
-COPY . .
+# Copy source code from server directory
+COPY server/ ./
+COPY prisma ./prisma/
 
 # Expose port
 EXPOSE 5000
@@ -52,8 +53,9 @@ FROM base AS production
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 
-# Copy source code
-COPY --chown=nodejs:nodejs . .
+# Copy source code from server directory
+COPY --chown=nodejs:nodejs server/ ./
+COPY --chown=nodejs:nodejs prisma ./prisma/
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/exports /app/uploads && \

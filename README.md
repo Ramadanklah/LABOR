@@ -47,7 +47,7 @@ A comprehensive, multi-tenant healthcare platform for managing laboratory result
 ```bash
 git clone <repository-url>
 cd LABOR
-cp .env.example .env # dev-only values
+cd .# dev-only values
 ```
 
 2. Start full stack (DB, Redis, MinIO, server, client, monitoring)
