@@ -1,0 +1,80 @@
+{
+  "name": "labor-ala",
+  "version": "1.0.0",
+  "description": "Lab Results Management System - Comprehensive Test Suite",
+  "main": "server/server.js",
+  "scripts": {
+    "test": "node run-tests.js",
+    "test:server": "node run-tests.js --server-only",
+    "test:client": "node run-tests.js --client-only",
+    "test:integration": "node run-tests.js --integration-only",
+    "test:e2e": "node run-tests.js --e2e-only",
+    "test:coverage": "node run-tests.js --coverage",
+    "test:watch": "jest --watch",
+    "test:ci": "jest --ci --coverage --watchAll=false",
+    "jest:server": "cd server && npm test",
+    "jest:integration": "jest integration.test.js --verbose",
+    "jest:e2e": "jest e2e.test.js --verbose --detectOpenHandles",
+    "start": "cd server && npm start",
+    "dev": "cd server && npm run dev",
+    "build": "cd client && npm run build",
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install",
+    "clean": "rm -rf coverage .jest-cache test-report.json",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.1",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3",
+    "@testing-library/jest-dom": "^6.1.4",
+    "@testing-library/react": "^13.4.0",
+    "@testing-library/user-event": "^14.5.1",
+    "jest-environment-jsdom": "^29.7.0",
+    "jest-watch-typeahead": "^2.2.2",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "clearMocks": true,
+    "restoreMocks": true,
+    "collectCoverage": false,
+    "coverageDirectory": "coverage",
+    "coverageReporters": ["text", "lcov", "html"],
+    "testMatch": [
+      "**/__tests__/**/*.js",
+      "**/?(*.)+(spec|test).js"
+    ],
+    "testTimeout": 30000,
+    "verbose": true,
+    "detectOpenHandles": true,
+    "forceExit": true,
+    "maxWorkers": "50%"
+  },
+  "keywords": [
+    "healthcare",
+    "lab-results",
+    "ldt",
+    "medical",
+    "testing"
+  ],
+  "author": "Lab Results Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/labor-ala.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/labor-ala/issues"
+  },
+  "homepage": "https://github.com/your-org/labor-ala#readme"
+}

@@ -1,0 +1,34 @@
+# Security & Compliance Pre-Go-Live Checklist
+
+- [x] Enforce strict object-level authorization (OLA) for all data reads/downloads
+  - Doctor: only results where ordering LANR/BSNR matches or assigned
+  - Patient: only their own results
+  - Admin: admin-only endpoints; audited
+- [x] Webhook hardening (Mirth)
+  - HMAC signature (X-Signature with SHA256), timestamp (X-Timestamp)
+  - Replay protection (timestamp skew + cache), idempotency key/body hash
+  - Strict content-type checks; clear HTTP status codes (200/400/401/415/422/500)
+  - Append-only raw message logging (filesystem/S3)
+- [x] Authentication & sessions
+  - Strong hashing (bcrypt) and short-lived JWT (default 15m) with logout revocation list
+  - Rate-limit auth endpoints; optional TOTP 2FA
+- [x] Secrets
+  - No secrets in repo; use Secret Manager/Vault (.env for local only)
+  - JWT secret entropy policy and CI preflight
+- [x] Encryption & PII
+  - DB/backups encrypted; plan for column-level encryption of PII
+  - S3 SSE-KMS for reports; TLS everywhere
+- [x] Idempotency & deduplication
+  - Stable message hash; unique constraints; documented in Mirth guide
+- [x] Audit logging (append-only)
+  - who/what/when/ip; export; retention policy documented
+- [x] Backups & restore
+  - Nightly DB backups; PITR; offsite; monthly restore drills
+- [x] Monitoring & alerting
+  - /api/health; metrics; Prometheus/Grafana; alerts for error rates/backlogs
+- [x] CI/CD
+  - Lint, unit, integration; access control tests; security scans; gated deploys
+- [x] Rate limiting & DoS protections
+  - Global + per-endpoint limits; especially webhook/auth
+- [x] Pen test & fuzzing
+  - External pen test scheduled; LDT parser fuzzing

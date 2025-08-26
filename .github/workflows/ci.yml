@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install detect-secrets
+        run: |
+          pip install detect-secrets
+      - name: Run detect-secrets
+        run: |
+          detect-secrets scan --baseline .secrets.baseline
+          detect-secrets audit --no-keyboard --report .secrets.baseline
+
+  build-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: production
+          push: false
+          tags: ghcr.io/your-org/lab-results-server:${{ github.sha }}
+      - name: Export image as artifact
+        run: |
+          docker save ghcr.io/your-org/lab-results-server:${{ github.sha }} | gzip > server-image.tar.gz
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-image
+          path: server-image.tar.gz
+
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" 
+          --health-interval 10s 
+          --health-timeout 5s 
+          --health-retries 5
+    env:
+      JWT_SECRET: test_jwt_secret_please_override
+      NODE_ENV: test
+      MIRTH_WEBHOOK_SECRET: test_secret
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install server deps
+        working-directory: server
+        run: npm ci
+
+      - name: Install client deps
+        working-directory: client
+        run: npm ci
+
+      - name: Lint server
+        working-directory: server
+        run: npm run lint:check || npm run lint:check
+
+      - name: Lint client
+        working-directory: client
+        run: npm run lint || npm run lint
+
+      - name: Build client
+        working-directory: client
+        run: npm run build
+
+      - name: Start server
+        working-directory: server
+        run: |
+          nohup npm start &
+          echo $! > ../server.pid
+          sleep 3
+
+      - name: Run basic API tests
+        run: bash ./test-api.sh
+
+      - name: Run access control tests
+        run: bash ./test-access-control.sh
+
+      - name: Stop server
+        if: always()
+        run: |
+          kill $(cat server.pid) || true

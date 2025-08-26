@@ -1,0 +1,28 @@
+#!/usr/bin/env sh
+. "$(dirname "$0")/_/husky.sh"
+
+if command -v detect-secrets >/dev/null 2>&1; then
+  detect-secrets scan --baseline .secrets.baseline || {
+    echo "Secret scan failed. Commit aborted." >&2
+    exit 1
+  }
+else
+  echo "detect-secrets not installed; skipping secret scan (CI will enforce)." >&2
+fi
+
+echo "🔍 Running pre-commit checks..."
+
+# Run lint-staged
+npx lint-staged
+
+# Run type checking for TypeScript files
+if [ -f "tsconfig.json" ]; then
+  echo "📝 Running TypeScript type checking..."
+  npx tsc --noEmit
+fi
+
+# Run security audit
+echo "🔒 Running security audit..."
+npm audit --audit-level=moderate
+
+echo "✅ Pre-commit checks completed!"

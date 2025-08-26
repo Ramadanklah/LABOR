@@ -1,0 +1,196 @@
+groups:
+  - name: slos
+    rules:
+      # API Availability SLO (99.9%)
+      - record: job:api_requests_total:rate5m
+        expr: sum(rate(http_requests_total{job="lab-results-server"}[5m])) by (instance)
+
+      - record: job:api_requests_failed_total:rate5m
+        expr: sum(rate(http_requests_total{job="lab-results-server", status=~"5.."}[5m])) by (instance)
+
+      - record: job:api_availability:ratio
+        expr: (job:api_requests_total:rate5m - job:api_requests_failed_total:rate5m) / job:api_requests_total:rate5m
+
+      - alert: APIAvailabilityBelowSLO
+        expr: job:api_availability:ratio < 0.999
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API availability below SLO (99.9%)"
+          description: "API availability is {{ $value | humanizePercentage }} which is below the 99.9% SLO"
+
+      # API Latency SLO (p95 < 500ms)
+      - record: job:api_request_duration_seconds:p95
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="lab-results-server"}[5m])) by (le, instance))
+
+      - alert: APILatencyAboveSLO
+        expr: job:api_request_duration_seconds:p95 > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API latency above SLO (p95 < 500ms)"
+          description: "API p95 latency is {{ $value | humanizeDuration }} which is above the 500ms SLO"
+
+      # Database Connection SLO
+      - record: job:database_connections_active
+        expr: pg_stat_database_numbackends{job="postgres"}
+
+      - alert: DatabaseConnectionsHigh
+        expr: job:database_connections_active > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High database connection count"
+          description: "Database has {{ $value }} active connections"
+
+      # Redis Memory Usage SLO
+      - record: job:redis_memory_usage_bytes
+        expr: redis_memory_used_bytes{job="redis"}
+
+      - record: job:redis_memory_usage_ratio
+        expr: job:redis_memory_usage_bytes / redis_memory_max_bytes{job="redis"}
+
+      - alert: RedisMemoryUsageHigh
+        expr: job:redis_memory_usage_ratio > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Redis memory usage"
+          description: "Redis memory usage is {{ $value | humanizePercentage }}"
+
+      # LDT Processing SLO
+      - record: job:ldt_messages_processed_total:rate5m
+        expr: sum(rate(ldt_messages_processed_total[5m])) by (instance)
+
+      - record: job:ldt_messages_failed_total:rate5m
+        expr: sum(rate(ldt_messages_failed_total[5m])) by (instance)
+
+      - record: job:ldt_processing_success_rate
+        expr: job:ldt_messages_processed_total:rate5m / (job:ldt_messages_processed_total:rate5m + job:ldt_messages_failed_total:rate5m)
+
+      - alert: LDTProcessingFailureRateHigh
+        expr: job:ldt_processing_success_rate < 0.99
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LDT processing failure rate high"
+          description: "LDT processing success rate is {{ $value | humanizePercentage }}"
+
+      # Export Generation SLO
+      - record: job:exports_generated_total:rate5m
+        expr: sum(rate(exports_generated_total[5m])) by (instance)
+
+      - record: job:exports_failed_total:rate5m
+        expr: sum(rate(exports_failed_total[5m])) by (instance)
+
+      - record: job:export_generation_success_rate
+        expr: job:exports_generated_total:rate5m / (job:exports_generated_total:rate5m + job:exports_failed_total:rate5m)
+
+      - alert: ExportGenerationFailureRateHigh
+        expr: job:export_generation_success_rate < 0.95
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Export generation failure rate high"
+          description: "Export generation success rate is {{ $value | humanizePercentage }}"
+
+      # Authentication SLO
+      - record: job:auth_requests_total:rate5m
+        expr: sum(rate(auth_requests_total[5m])) by (instance)
+
+      - record: job:auth_failures_total:rate5m
+        expr: sum(rate(auth_failures_total[5m])) by (instance)
+
+      - record: job:auth_success_rate
+        expr: (job:auth_requests_total:rate5m - job:auth_failures_total:rate5m) / job:auth_requests_total:rate5m
+
+      - alert: AuthenticationFailureRateHigh
+        expr: job:auth_success_rate < 0.99
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Authentication failure rate high"
+          description: "Authentication success rate is {{ $value | humanizePercentage }}"
+
+      # Multi-tenancy Isolation SLO
+      - record: job:tenant_isolation_violations_total:rate5m
+        expr: sum(rate(tenant_isolation_violations_total[5m])) by (instance)
+
+      - alert: TenantIsolationViolations
+        expr: job:tenant_isolation_violations_total:rate5m > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Tenant isolation violations detected"
+          description: "{{ $value }} tenant isolation violations detected in the last 5 minutes"
+
+      # Data Retention SLO
+      - record: job:data_retention_compliance_ratio
+        expr: sum(data_retention_compliant_records_total) / sum(data_retention_total_records_total)
+
+      - alert: DataRetentionNonCompliance
+        expr: job:data_retention_compliance_ratio < 0.999
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Data retention non-compliance detected"
+          description: "Data retention compliance is {{ $value | humanizePercentage }}"
+
+      # Security SLO
+      - record: job:security_events_total:rate5m
+        expr: sum(rate(security_events_total[5m])) by (instance, event_type)
+
+      - alert: SecurityEventsHigh
+        expr: job:security_events_total:rate5m > 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High number of security events"
+          description: "{{ $value }} security events detected in the last 5 minutes"
+
+      # System Resources SLO
+      - record: job:system_cpu_usage_ratio
+        expr: 1 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance))
+
+      - record: job:system_memory_usage_ratio
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes
+
+      - record: job:system_disk_usage_ratio
+        expr: (node_filesystem_size_bytes - node_filesystem_avail_bytes) / node_filesystem_size_bytes
+
+      - alert: SystemCPUUsageHigh
+        expr: job:system_cpu_usage_ratio > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value | humanizePercentage }}"
+
+      - alert: SystemMemoryUsageHigh
+        expr: job:system_memory_usage_ratio > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value | humanizePercentage }}"
+
+      - alert: SystemDiskUsageHigh
+        expr: job:system_disk_usage_ratio > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk usage"
+          description: "Disk usage is {{ $value | humanizePercentage }}"

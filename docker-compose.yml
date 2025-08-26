@@ -1,0 +1,108 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: lab_results_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d lab_results_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lab-backend
+    restart: unless-stopped
+    working_dir: /app
+    env_file:
+      - .env
+    volumes:
+      - ./server:/app:cached
+      - backend_node_modules:/app/node_modules
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    command: >
+      sh -c "npm install --no-audit --no-fund && npm run dev"
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  mirthconnect:
+    image: nextgenhealthcare/connect:4.5.2-jdk
+    container_name: mirthconnect
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # HTTP admin (if exposed)
+      - "8443:8443"   # HTTPS admin
+    volumes:
+      - ./mirth_data:/opt/mirth/server/data
+    environment:
+      MIRTH_USER: admin
+      MIRTH_PASSWORD: admin
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider --tries=1 http://localhost:8080 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://localhost:3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  redis_data:
+  grafana_data:
+  mirth_data:
+  backend_node_modules:
