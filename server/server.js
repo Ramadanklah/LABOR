@@ -1210,8 +1210,8 @@ function computeBodySha256Hex(buffer) {
 
 function validateWebhookSignature(req, res, next) {
   const secret = process.env.MIRTH_WEBHOOK_SECRET;
-  if (!secret) {
-    logger.warn('MIRTH_WEBHOOK_SECRET not set; rejecting webhook in production');
+  if (!secret || typeof secret !== 'string' || secret.trim().length === 0) {
+    return res.status(401).json({ success: false, message: 'Webhook secret not configured' });
   }
 
   const signatureHeader = req.headers['x-signature'] || req.headers['x-signature-sha256'];
@@ -1247,12 +1247,15 @@ function validateWebhookSignature(req, res, next) {
 
   // Verify HMAC SHA256: expected format 'sha256=hex'
   const expected = crypto
-    .createHmac('sha256', secret || '')
+    .createHmac('sha256', secret)
     .update(timestampHeader + '.' + rawBody)
     .digest('hex');
 
   const provided = signatureHeader.includes('=') ? signatureHeader.split('=')[1] : signatureHeader;
-  const valid = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(provided));
+  // Guard against length mismatches to avoid throwing
+  const expectedBuf = Buffer.from(expected, 'utf8');
+  const providedBuf = Buffer.from(provided, 'utf8');
+  const valid = expectedBuf.length === providedBuf.length && crypto.timingSafeEqual(expectedBuf, providedBuf);
   if (!valid) {
     return res.status(401).json({ success: false, message: 'Invalid signature' });
   }
@@ -1281,11 +1284,11 @@ const webhookLimiter = rateLimit({
 });
 
 // Utility: append-only raw log
-function persistRawMessage(rawBuffer) {
+async function persistRawMessage(rawBuffer) {
   try {
     const filename = `ldt_${new Date().toISOString().replace(/[:.]/g, '-')}_${crypto.randomUUID()}.txt`;
     const filePath = path.join(RAW_LOG_DIR, filename);
-    fs.writeFileSync(filePath, rawBuffer);
+    await fs.promises.writeFile(filePath, rawBuffer);
     return filePath;
   } catch (e) {
     logger.warn('Failed to persist raw message:', e.message);
@@ -1316,8 +1319,8 @@ app.post(
       bodyHash: req.webhookBodyHash
     });
 
-    // Persist raw
-    const storedPath = persistRawMessage(rawBody);
+    // Persist raw (non-blocking)
+    const storedPath = await persistRawMessage(rawBody);
 
     // Parse the LDT payload
     let ldtPayload;

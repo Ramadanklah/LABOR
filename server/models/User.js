@@ -55,11 +55,16 @@ class UserModel {
     this.usersByBsnrLanr = new Map();
 
     // Initialize with default admin user
-    this.initializeDefaultUsers();
+    if (process.env.NODE_ENV !== 'production') {
+      this.initializeDefaultUsers();
+    }
   }
 
   // Initialize default users for testing
   async initializeDefaultUsers() {
+    if (process.env.NODE_ENV === 'production') {
+      return; // Safety: never create default users in production
+    }
     try {
       // Create default admin user
       const adminUser = await this.createUser({
