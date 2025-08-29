@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jnlp spec="1.0+" codebase="http://172.16.70.242/webstart/app" href="desktop.jnlp">
+   <information>
+      <title>4lab Desktop</title>
+      <vendor>4labs GmbH</vendor>
+      <homepage href="http://www.4labs.eu"/>
+      <description>4lab Desktop</description>
+      <offline-allowed/>
+   </information>
+  <security>
+      <all-permissions/>
+   </security>
+   <resources>
+    <j2se version="1.3+ 1.2+" initial-heap-size="64M" max-heap-size="1024M"/>
+    <property name="org.omg.CORBA.ORBInitialHost" value="172.16.70.242"/>
+    <property name="4labs.la.erggriddos" value="true"/>
+    <property name="4labs.erggrid.dynamicolumnmanagement" value="true"/>
+    <property name="4labs.cache.optimizing" value="true"/>
+    <jar href="duckjar/ejb/duck/client/app/desktop.jar" main="true" download="eager"/>
+    <jar href="duckjar/ejb/duck/client/duck_ejb_client.jar" download="eager"/>
+    <jar href="duckjar/ejb/duck/duck_ejb.jar" download="eager"/>
+    <extension name="jars" href="commonejbjars6.jnlp"/>
+    <extension name="jars" href="jr6.jnlp"/>
+    <extension name="jars" href="hylafax.jnlp"/>
+    <extension name="jars" href="commonjars6.jnlp"/>
+    <extension name="jars" href="hl7jars.jnlp"/>
+   </resources>
+   <application-desc main-class="de.lab4.gui.desktop.mainframe.DesktopMainFrame">
+   </application-desc>
+   <update check="always"/>
+</jnlp>
