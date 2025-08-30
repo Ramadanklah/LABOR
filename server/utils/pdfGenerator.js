@@ -5,10 +5,27 @@ class PDFGenerator {
     this.doc = null;
   }
 
-  // Generate PDF report for lab results
+  // Generate PDF report for lab results with enhanced error handling
   generatePDF(results, options = {}) {
     return new Promise((resolve, reject) => {
       try {
+        // Input validation
+        if (!Array.isArray(results)) {
+          reject(new Error('Results must be an array'));
+          return;
+        }
+
+        if (results.length === 0) {
+          reject(new Error('No results provided for PDF generation'));
+          return;
+        }
+
+        // Validate options
+        if (options && typeof options !== 'object') {
+          reject(new Error('Options must be an object'));
+          return;
+        }
+
         this.doc = new PDFDocument({
           size: 'A4',
           margin: 50,
@@ -21,20 +38,62 @@ class PDFGenerator {
         });
 
         const buffers = [];
-        this.doc.on('data', buffers.push.bind(buffers));
-        this.doc.on('end', () => {
-          const pdfData = Buffer.concat(buffers);
-          resolve(pdfData);
+        
+        // Enhanced error handling for PDF generation
+        this.doc.on('data', (chunk) => {
+          try {
+            if (chunk && chunk.length > 0) {
+              buffers.push(chunk);
+            }
+          } catch (error) {
+            console.error('Error processing PDF chunk:', error);
+            reject(new Error('Failed to process PDF data'));
+          }
         });
 
-        // Generate the PDF content
-        this.generateHeader(options);
-        this.generateResultsTable(results, options);
-        this.generateFooter(options);
+        this.doc.on('end', () => {
+          try {
+            if (buffers.length === 0) {
+              reject(new Error('No PDF data generated'));
+              return;
+            }
+            
+            const pdfData = Buffer.concat(buffers);
+            
+            // Validate PDF size
+            if (pdfData.length === 0) {
+              reject(new Error('Generated PDF is empty'));
+              return;
+            }
+            
+            if (pdfData.length > 50 * 1024 * 1024) { // 50MB limit
+              reject(new Error('Generated PDF is too large'));
+              return;
+            }
+            
+            resolve(pdfData);
+          } catch (error) {
+            reject(new Error(`Failed to finalize PDF: ${error.message}`));
+          }
+        });
+
+        this.doc.on('error', (error) => {
+          reject(new Error(`PDF generation error: ${error.message}`));
+        });
+
+        // Generate the PDF content with error handling
+        try {
+          this.generateHeader(options);
+          this.generateResultsTable(results, options);
+          this.generateFooter(options);
+        } catch (error) {
+          reject(new Error(`Failed to generate PDF content: ${error.message}`));
+          return;
+        }
 
         this.doc.end();
       } catch (error) {
-        reject(error);
+        reject(new Error(`PDF initialization error: ${error.message}`));
       }
     });
   }

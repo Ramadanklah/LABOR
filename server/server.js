@@ -67,8 +67,20 @@ const httpRequestCounter = new promClient.Counter({
 });
 register.registerMetric(httpRequestCounter);
 
-// In-memory token revocation list (basic blacklist)
+// Enhanced token management with expiration tracking
+const tokenStore = new Map(); // token -> { userId, expiresAt, revoked }
 const revokedTokens = new Set();
+
+// Clean up expired tokens every hour
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, data] of tokenStore.entries()) {
+    if (data.expiresAt < now || data.revoked) {
+      tokenStore.delete(token);
+      revokedTokens.delete(token);
+    }
+  }
+}, 60 * 60 * 1000); // Every hour
 
 // Ensure raw logs directory exists for append-only raw message storage
 const RAW_LOG_DIR = path.join(__dirname, 'logs_raw');
@@ -128,7 +140,7 @@ const logger = winston.createLogger({
   ],
 });
 
-// Production-ready middleware with optimizations
+// Production-ready middleware with enhanced security
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -137,16 +149,56 @@ app.use(helmet({
       scriptSrc: ["'self'"],
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'"],
+      fontSrc: ["'self'", "https:"],
+      objectSrc: ["'none"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
     },
   },
   crossOriginEmbedderPolicy: false,
-  // Optimize for performance
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  // Enhanced security headers
   hsts: {
     maxAge: 31536000,
     includeSubDomains: true,
     preload: true
-  }
+  },
+  // Additional security headers
+  noSniff: true,
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  permittedCrossDomainPolicies: { permittedPolicies: "none" },
+  frameguard: { action: "deny" },
+  xssFilter: true,
+  hidePoweredBy: true
 }));
+
+// Additional security headers
+app.use((req, res, next) => {
+  // Prevent clickjacking
+  res.setHeader('X-Frame-Options', 'DENY');
+  
+  // Prevent MIME type sniffing
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  
+  // XSS protection
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  
+  // Referrer policy
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  
+  // Permissions policy
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  
+  // Content security policy for additional protection
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' https:; connect-src 'self'; object-src 'none'; media-src 'self'; frame-src 'none'; base-uri 'self'; form-action 'self'");
+  }
+  
+  next();
+});
 
 // Optimized compression with better settings
 app.use(compression({
@@ -175,7 +227,7 @@ app.get('/metrics', async (req, res) => {
   }
 });
 
-// Rate limiting with different strategies
+// Rate limiting with different strategies for production security
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Limit each IP
@@ -184,29 +236,83 @@ const limiter = rateLimit({
   legacyHeaders: false,
   skipSuccessfulRequests: false,
   skipFailedRequests: false,
+  // Enhanced security for production
+  keyGenerator: (req) => {
+    // Use IP + user agent for better rate limiting
+    return req.ip + ':' + (req.headers['user-agent'] || 'unknown');
+  },
+  handler: (req, res) => {
+    logger.warn(`Rate limit exceeded for IP: ${req.ip}`);
+    res.status(429).json({
+      success: false,
+      message: 'Too many requests from this IP, please try again later.',
+      retryAfter: Math.ceil(15 * 60 / 1000) // 15 minutes in seconds
+    });
+  }
 });
 
-app.use(limiter);
-
-const downloadLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 20, // Limit download requests
-  message: 'Too many download requests, please try again later.',
-  skipSuccessfulRequests: true,
-  skipFailedRequests: false,
-});
-
+// Stricter rate limiting for authentication endpoints
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit login attempts
+  max: process.env.NODE_ENV === 'production' ? 3 : 10, // Stricter in production
   message: 'Too many login attempts, please try again later.',
   skipSuccessfulRequests: true,
   skipFailedRequests: false,
+  keyGenerator: (req) => req.ip,
+  handler: (req, res) => {
+    logger.warn(`Auth rate limit exceeded for IP: ${req.ip}`);
+    res.status(429).json({
+      success: false,
+      message: 'Too many authentication attempts. Account may be temporarily locked.',
+      retryAfter: Math.ceil(15 * 60 / 1000)
+    });
+  }
 });
 
+// Rate limiting for download endpoints
+const downloadLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: process.env.NODE_ENV === 'production' ? 10 : 50, // Stricter in production
+  message: 'Too many download requests, please try again later.',
+  skipSuccessfulRequests: true,
+  skipFailedRequests: false,
+  keyGenerator: (req) => req.ip,
+  handler: (req, res) => {
+    logger.warn(`Download rate limit exceeded for IP: ${req.ip}`);
+    res.status(429).json({
+      success: false,
+      message: 'Too many download requests, please try again later.',
+      retryAfter: Math.ceil(5 * 60 / 1000)
+    });
+  }
+});
+
+// Rate limiting for admin endpoints
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'production' ? 50 : 200, // Stricter for admin operations
+  message: 'Too many admin requests, please try again later.',
+  skipSuccessfulRequests: false,
+  skipFailedRequests: false,
+  keyGenerator: (req) => req.ip,
+  handler: (req, res) => {
+    logger.warn(`Admin rate limit exceeded for IP: ${req.ip}`);
+    res.status(429).json({
+      success: false,
+      message: 'Too many admin requests, please try again later.',
+      retryAfter: Math.ceil(15 * 60 / 1000)
+    });
+  }
+});
+
+// Apply rate limiting to different route groups
 app.use('/api/', limiter);
-app.use('/api/download', downloadLimiter);
 app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/setup-2fa', authLimiter);
+app.use('/api/auth/verify-2fa', authLimiter);
+app.use('/api/download', downloadLimiter);
+app.use('/api/admin', adminLimiter);
+app.use('/api/users', adminLimiter);
 
 // CORS configuration with optimizations
 const buildAllowedOrigins = () => {
@@ -247,17 +353,49 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 
-// Optimized body parsing
+// Enhanced body parsing with security limits
+const maxBodySize = process.env.NODE_ENV === 'production' ? '5mb' : '10mb';
+const maxParams = process.env.NODE_ENV === 'production' ? 500 : 1000;
+
 app.use(express.json({ 
-  limit: '10mb',
+  limit: maxBodySize,
   strict: true,
-  type: 'application/json'
+  type: 'application/json',
+  verify: (req, res, buf) => {
+    // Additional validation for JSON payloads
+    if (buf.length > 5 * 1024 * 1024) { // 5MB hard limit
+      throw new Error('Request body too large');
+    }
+    req.rawBody = buf;
+  }
 }));
+
 app.use(express.urlencoded({ 
   extended: true, 
-  limit: '10mb',
-  parameterLimit: 1000
+  limit: maxBodySize,
+  parameterLimit: maxParams,
+  verify: (req, res, buf) => {
+    // Additional validation for URL-encoded payloads
+    if (buf.length > 5 * 1024 * 1024) { // 5MB hard limit
+      throw new Error('Request body too large');
+    }
+  }
 }));
+
+// Request size validation middleware
+app.use((req, res, next) => {
+  const contentLength = parseInt(req.headers['content-length'] || '0');
+  
+  if (contentLength > 5 * 1024 * 1024) { // 5MB limit
+    logger.warn(`Request too large: ${contentLength} bytes from ${req.ip}`);
+    return res.status(413).json({
+      success: false,
+      message: 'Request entity too large'
+    });
+  }
+  
+  next();
+});
 
 // Request logging middleware with performance tracking
 app.use((req, res, next) => {
@@ -323,7 +461,7 @@ const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
-// Enhanced authentication middleware
+// Enhanced authentication middleware with token validation
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -335,7 +473,17 @@ const authenticateToken = (req, res, next) => {
     });
   }
 
+  // Check if token is revoked
   if (revokedTokens.has(token)) {
+    return res.status(401).json({
+      success: false,
+      message: 'Token revoked'
+    });
+  }
+
+  // Check token store for additional validation
+  const tokenData = tokenStore.get(token);
+  if (tokenData && tokenData.revoked) {
     return res.status(401).json({
       success: false,
       message: 'Token revoked'
@@ -344,6 +492,18 @@ const authenticateToken = (req, res, next) => {
 
   try {
     const decoded = userModel.verifyToken(token);
+    
+    // Additional token expiration check
+    if (decoded.exp && Date.now() >= decoded.exp * 1000) {
+      // Remove expired token
+      tokenStore.delete(token);
+      revokedTokens.add(token);
+      return res.status(401).json({
+        success: false,
+        message: 'Token expired'
+      });
+    }
+
     const user = userModel.getUserById(decoded.userId);
     
     if (!user) {
@@ -360,9 +520,32 @@ const authenticateToken = (req, res, next) => {
       });
     }
 
+    // Check if user's role has changed (token invalidation)
+    if (user.role !== decoded.role) {
+      // Revoke token if user role changed
+      revokedTokens.add(token);
+      tokenStore.delete(token);
+      return res.status(401).json({
+        success: false,
+        message: 'Token invalidated due to role change'
+      });
+    }
+
+    // Update token store with current user info
+    tokenStore.set(token, {
+      userId: user.id,
+      expiresAt: decoded.exp ? decoded.exp * 1000 : Date.now() + (15 * 60 * 1000), // 15 minutes default
+      revoked: false
+    });
+
     req.user = user;
     next();
   } catch (error) {
+    logger.warn(`Token validation failed: ${error.message}`, { 
+      token: token.substring(0, 10) + '...',
+      ip: req.ip 
+    });
+    
     res.status(403).json({ 
       success: false, 
       message: 'Invalid or expired token' 
@@ -833,19 +1016,68 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
   });
 });
 
-// Logout endpoint (client-side token invalidation)
+// Enhanced logout endpoint with proper token revocation
 app.post('/api/auth/logout', authenticateToken, (req, res) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
+  
   if (token) {
+    // Add to revoked tokens set
     revokedTokens.add(token);
+    
+    // Update token store
+    const tokenData = tokenStore.get(token);
+    if (tokenData) {
+      tokenData.revoked = true;
+      tokenStore.set(token, tokenData);
+    }
+    
+    // Log the logout event
+    logger.info(`User logged out: ${req.user.email}`, {
+      userId: req.user.id,
+      ip: req.ip,
+      userAgent: req.headers['user-agent']
+    });
   }
-  logger.info(`User logged out: ${req.user.email}`);
+  
   res.json({
     success: true,
     message: 'Logged out successfully'
   });
 });
+
+// Force logout all user sessions (admin only)
+app.post('/api/auth/logout-all', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  const { userId } = req.body;
+  
+  if (!userId) {
+    return res.status(400).json({
+      success: false,
+      message: 'User ID is required'
+    });
+  }
+  
+  // Revoke all tokens for the specified user
+  let revokedCount = 0;
+  for (const [token, data] of tokenStore.entries()) {
+    if (data.userId === userId) {
+      data.revoked = true;
+      revokedTokens.add(token);
+      revokedCount++;
+    }
+  }
+  
+  logger.info(`Admin ${req.user.email} force logged out user ${userId}`, {
+    adminId: req.user.id,
+    targetUserId: userId,
+    revokedTokens: revokedCount
+  });
+  
+  res.json({
+    success: true,
+    message: `Successfully logged out user. ${revokedCount} sessions revoked.`
+  });
+}));
 
 // --- TWO-FACTOR AUTHENTICATION ROUTES ---
 
@@ -877,9 +1109,70 @@ app.post('/api/auth/verify-2fa', authenticateToken, asyncHandler(async (req, res
 
 // === USER MANAGEMENT ROUTES ===
 
-// Create new user (Admin only)
+// Create new user (Admin only) with enhanced validation
 app.post('/api/users', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   try {
+    // Enhanced input validation
+    const { email, password, firstName, lastName, role, bsnr, lanr } = req.body;
+    
+    // Required field validation
+    if (!email || !password || !firstName || !lastName || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: email, password, firstName, lastName, role'
+      });
+    }
+
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email format'
+      });
+    }
+
+    // Name validation (prevent injection)
+    const nameRegex = /^[a-zA-ZäöüßÄÖÜ\s\-']{2,50}$/;
+    if (!nameRegex.test(firstName) || !nameRegex.test(lastName)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid name format. Names must be 2-50 characters and contain only letters, spaces, hyphens, and apostrophes.'
+      });
+    }
+
+    // Role validation
+    const validRoles = ['admin', 'doctor', 'lab_technician', 'patient'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role. Must be one of: admin, doctor, lab_technician, patient'
+      });
+    }
+
+    // BSNR/LANR validation if provided
+    if (bsnr && !/^\d{9}$/.test(bsnr)) {
+      return res.status(400).json({
+        success: false,
+        message: 'BSNR must be exactly 9 digits'
+      });
+    }
+
+    if (lanr && !/^\d{7}$/.test(lanr)) {
+      return res.status(400).json({
+        success: false,
+        message: 'LANR must be exactly 7 digits'
+      });
+    }
+
+    // Prevent admin from creating another admin in production
+    if (process.env.NODE_ENV === 'production' && role === 'admin' && req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only existing admins can create new admin accounts in production'
+      });
+    }
+
     const newUser = await userModel.createUser(req.body);
     
     logger.info(`New user created: ${newUser.email} (${newUser.role}) by ${req.user.email}`);
@@ -890,6 +1183,11 @@ app.post('/api/users', authenticateToken, requireAdmin, asyncHandler(async (req,
       user: newUser
     });
   } catch (error) {
+    logger.error(`User creation failed: ${error.message}`, { 
+      attemptedBy: req.user.email,
+      attemptedData: { email: req.body.email, role: req.body.role }
+    });
+    
     res.status(400).json({
       success: false,
       message: error.message

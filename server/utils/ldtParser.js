@@ -74,7 +74,7 @@ function parseLineFormat(ldtString) {
 }
 
 /**
- * Parse a single LDT record
+ * Parse a single LDT record with enhanced security
  */
 function parseRecord(raw) {
   if (!raw || raw.length < 8) {
@@ -82,44 +82,78 @@ function parseRecord(raw) {
   }
 
   try {
-    // Handle different record lengths
-    if (raw.length >= 11) {
-      // Standard format: length(3) + recordType(4) + fieldId(4) + content
-      const length = raw.slice(0, 3);
-      const recordType = raw.slice(3, 7);
-      const fieldId = raw.slice(7, 11);
-      const content = raw.slice(11);
+    // Input sanitization: ensure raw is a string and trim whitespace
+    const sanitizedRaw = String(raw).trim();
+    
+    // Additional length validation
+    if (sanitizedRaw.length > 1000) {
+      console.warn('LDT record too long, potential attack:', sanitizedRaw.length);
+      return null;
+    }
 
-      // Validate that length is numeric
+    // Handle different record lengths
+    if (sanitizedRaw.length >= 11) {
+      // Standard format: length(3) + recordType(4) + fieldId(4) + content
+      const length = sanitizedRaw.slice(0, 3);
+      const recordType = sanitizedRaw.slice(3, 7);
+      const fieldId = sanitizedRaw.slice(7, 11);
+      const content = sanitizedRaw.slice(11);
+
+      // Enhanced validation that length is numeric and reasonable
       if (!/^\d{3}$/.test(length)) {
         return null;
       }
-
-      // Validate that record type is numeric
-      if (!/^\d{4}$/.test(recordType)) {
+      
+      // Validate length is reasonable (not 000 or 999)
+      const lengthNum = parseInt(length, 10);
+      if (lengthNum < 8 || lengthNum > 999) {
         return null;
       }
 
-      // Field ID can be alphanumeric with special characters
+      // Validate that record type is numeric and in valid range
+      if (!/^\d{4}$/.test(recordType)) {
+        return null;
+      }
+      
+      // Validate record type is in expected range (8000-8599)
+      const recordTypeNum = parseInt(recordType, 10);
+      if (recordTypeNum < 8000 || recordTypeNum > 8599) {
+        return null;
+      }
+
+      // Field ID can be alphanumeric with special characters, but limit length
       if (!/^[A-Za-z0-9*]{4}$/.test(fieldId)) {
         return null;
       }
 
-      return { raw, length, recordType, fieldId, content };
-    } else if (raw.length >= 8) {
+      // Sanitize content to prevent injection
+      const sanitizedContent = sanitizeContent(content);
+
+      return { raw: sanitizedRaw, length, recordType, fieldId, content: sanitizedContent };
+    } else if (sanitizedRaw.length >= 8) {
       // Short format: length(3) + recordType(4) + fieldId(1)
-      const length = raw.slice(0, 3);
-      const recordType = raw.slice(3, 7);
-      const fieldId = raw.slice(7, 8);
+      const length = sanitizedRaw.slice(0, 3);
+      const recordType = sanitizedRaw.slice(3, 7);
+      const fieldId = sanitizedRaw.slice(7, 8);
       const content = '';
 
-      // Validate that length is numeric
+      // Validate that length is numeric and reasonable
       if (!/^\d{3}$/.test(length)) {
         return null;
       }
+      
+      const lengthNum = parseInt(length, 10);
+      if (lengthNum < 8 || lengthNum > 999) {
+        return null;
+      }
 
-      // Validate that record type is numeric
+      // Validate that record type is numeric and in valid range
       if (!/^\d{4}$/.test(recordType)) {
+        return null;
+      }
+      
+      const recordTypeNum = parseInt(recordType, 10);
+      if (recordTypeNum < 8000 || recordTypeNum > 8599) {
         return null;
       }
 
@@ -128,7 +162,7 @@ function parseRecord(raw) {
         return null;
       }
 
-      return { raw, length, recordType, fieldId, content };
+      return { raw: sanitizedRaw, length, recordType, fieldId, content };
     }
 
     return null;
@@ -136,6 +170,20 @@ function parseRecord(raw) {
     console.error('Error parsing LDT record:', raw, error);
     return null;
   }
+}
+
+/**
+ * Sanitize content to prevent injection attacks
+ */
+function sanitizeContent(content) {
+  if (!content) return '';
+  
+  // Remove potentially dangerous characters and limit length
+  return String(content)
+    .replace(/[<>\"'&]/g, '') // Remove HTML/XML special characters
+    .replace(/\r\n/g, '\n')   // Normalize line endings
+    .replace(/\r/g, '\n')     // Normalize line endings
+    .substring(0, 500);       // Limit content length
 }
 
 module.exports = parseLDT;
