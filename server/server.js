@@ -21,6 +21,8 @@ const swaggerUi = require('swagger-ui-express');
 const promClient = require('prom-client');
 
 const app = express();
+// Trust the first proxy to correctly interpret client IP addresses when behind proxies (e.g., NGINX, Heroku)
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 
 // Swagger/OpenAPI setup
@@ -43,7 +45,10 @@ const swaggerOptions = {
 
 const swaggerSpec = swaggerJsdoc(swaggerOptions);
 
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// Serve swagger docs only in non-production environments or when explicitly enabled via ENABLE_SWAGGER
+if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_SWAGGER === 'true') {
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+}
 
 // Initialize cache with optimized settings
 const cache = new NodeCache({ 
@@ -98,11 +103,19 @@ const userModel = new UserModel();
 // Basic tenant resolver: derive tenant from subdomain or header
 function resolveTenantId(req) {
   const headerTenant = req.headers['x-tenant-id'];
-  if (headerTenant && typeof headerTenant === 'string') return headerTenant;
+  const allowedTenants = (process.env.ALLOWED_TENANTS || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (headerTenant && typeof headerTenant === 'string' &&
+      (allowedTenants.length === 0 || allowedTenants.includes(headerTenant))) {
+    return headerTenant;
+  }
   const host = req.headers.host || '';
   const parts = host.split('.');
   if (parts.length > 2) {
     return parts[0];
+  }
+  // In production, avoid falling back to a default tenant if none resolved
+  if (process.env.NODE_ENV === 'production' && allowedTenants.length > 0) {
+    return null;
   }
   return process.env.DEFAULT_TENANT_ID || 'default';
 }
@@ -218,6 +231,15 @@ app.use(compression({
 
 // Metrics endpoint
 app.get('/metrics', async (req, res) => {
+  // Restrict access in production: require either a valid metrics token or allow-listed IP
+  if (process.env.NODE_ENV === 'production') {
+    const token = req.get('x-metrics-token');
+    const ip = req.ip || req.connection?.remoteAddress;
+    const allowIps = (process.env.METRICS_ALLOW_IPS || '127.0.0.1,::1').split(',').map(s => s.trim());
+    if (token !== process.env.METRICS_TOKEN && !allowIps.includes(ip)) {
+      return res.status(403).send('Forbidden');
+    }
+  }
   try {
     res.set('Content-Type', register.contentType);
     const metrics = await register.metrics();
@@ -381,6 +403,14 @@ app.use(express.urlencoded({
     }
   }
 }));
+
+// Gracefully handle JSON parse or body size errors
+app.use((err, req, res, next) => {
+  if (err && (err.type === 'entity.too.large' || err.type === 'entity.parse.failed' || err.message === 'Request body too large')) {
+    return res.status(413).json({ success: false, message: 'Invalid JSON or payload too large' });
+  }
+  next(err);
+});
 
 // Request size validation middleware
 app.use((req, res, next) => {
