@@ -57,55 +57,93 @@ class UserModel {
     // Initialize with default admin user
     if (process.env.NODE_ENV !== 'production') {
       this.initializeDefaultUsers();
+    } else {
+      // In production, create admin user if no users exist
+      this.initializeProductionAdmin();
     }
   }
 
-  // Initialize default users for testing
-  async initializeDefaultUsers() {
-    if (process.env.NODE_ENV === 'production') {
-      return; // Safety: never create default users in production
+  // Initialize production admin user if no users exist
+  async initializeProductionAdmin() {
+    // Only create admin if no users exist
+    if (this.users.size === 0) {
+      console.log('Production mode: No users found, creating initial admin user');
+      try {
+        const adminUser = await this.createUser({
+          email: 'admin@laborresults.de',
+          password: 'admin123',
+          firstName: 'System',
+          lastName: 'Administrator',
+          role: USER_ROLES.ADMIN,
+          bsnr: '999999999',
+          lanr: '9999999',
+          isActive: true
+        });
+
+        console.log('✅ Initial admin user created for production');
+        console.log(`   Email: ${adminUser.email}`);
+        console.log(`   Password: admin123 (CHANGE IMMEDIATELY!)`);
+        console.log('   ⚠️  IMPORTANT: Change the default password immediately!');
+      } catch (error) {
+        console.error('Error creating production admin user:', error);
+      }
     }
-    try {
-      // Create default admin user
-      const adminUser = await this.createUser({
-        email: 'admin@laborresults.de',
-        password: 'admin123',
-        firstName: 'System',
-        lastName: 'Administrator',
-        role: USER_ROLES.ADMIN,
-        bsnr: '999999999',
-        lanr: '9999999',
-        isActive: true
-      });
+  }
 
-      // Create default doctor user
-      const doctorUser = await this.createUser({
-        email: 'doctor@laborresults.de',
-        password: 'doctor123',
-        firstName: 'Dr. Maria',
-        lastName: 'Schmidt',
-        role: USER_ROLES.DOCTOR,
-        bsnr: '123456789',
-        lanr: '1234567',
-        specialization: 'Internal Medicine',
-        isActive: true
-      });
+  // Initialize default users for testing ONLY
+  async initializeDefaultUsers() {
+    // CRITICAL: Never create default users in production
+    if (process.env.NODE_ENV === 'production') {
+      console.log('Production mode: Skipping default user creation for security');
+      return;
+    }
+    
+    // Only create default users in development/testing
+    if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
+      try {
+        // Create default admin user
+        const adminUser = await this.createUser({
+          email: 'admin@laborresults.de',
+          password: 'admin123',
+          firstName: 'System',
+          lastName: 'Administrator',
+          role: USER_ROLES.ADMIN,
+          bsnr: '999999999',
+          lanr: '9999999',
+          isActive: true
+        });
 
-      // Create default lab technician
-      const labUser = await this.createUser({
-        email: 'lab@laborresults.de',
-        password: 'lab123',
-        firstName: 'Hans',
-        lastName: 'Mueller',
-        role: USER_ROLES.LAB_TECHNICIAN,
-        bsnr: '123456789',
-        lanr: '1234568',
-        isActive: true
-      });
+        // Create default doctor user
+        const doctorUser = await this.createUser({
+          email: 'doctor@laborresults.de',
+          password: 'doctor123',
+          firstName: 'Dr. Maria',
+          lastName: 'Schmidt',
+          role: USER_ROLES.DOCTOR,
+          bsnr: '123456789',
+          lanr: '1234567',
+          specialization: 'Internal Medicine',
+          isActive: true
+        });
 
-      console.log('Default users initialized successfully');
-    } catch (error) {
-      console.error('Error initializing default users:', error);
+        // Create default lab technician
+        const labUser = await this.createUser({
+          email: 'lab@laborresults.de',
+          password: 'lab123',
+          firstName: 'Hans',
+          lastName: 'Mueller',
+          role: USER_ROLES.LAB_TECHNICIAN,
+          bsnr: '123456789',
+          lanr: '1234568',
+          isActive: true
+        });
+
+        console.log('Default users initialized successfully (development mode only)');
+      } catch (error) {
+        console.error('Error initializing default users:', error);
+      }
+    } else {
+      console.log('Environment not set to development/test: Skipping default user creation');
     }
   }
 
@@ -129,6 +167,36 @@ class UserModel {
     // Validation
     if (!email || !password || !firstName || !lastName || !role) {
       throw new Error('Missing required fields');
+    }
+
+    // Enhanced email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      throw new Error('Invalid email format');
+    }
+
+    // Strong password validation for production
+    if (process.env.NODE_ENV === 'production') {
+      if (password.length < 12) {
+        throw new Error('Password must be at least 12 characters long');
+      }
+      if (!/(?=.*[a-z])/.test(password)) {
+        throw new Error('Password must contain at least one lowercase letter');
+      }
+      if (!/(?=.*[A-Z])/.test(password)) {
+        throw new Error('Password must contain at least one uppercase letter');
+      }
+      if (!/(?=.*\d)/.test(password)) {
+        throw new Error('Password must contain at least one number');
+      }
+      if (!/(?=.*[!@#$%^&*(),.?":{}|<>])/.test(password)) {
+        throw new Error('Password must contain at least one special character');
+      }
+    } else {
+      // Development mode: minimum 8 characters
+      if (password.length < 8) {
+        throw new Error('Password must be at least 8 characters long');
+      }
     }
 
     if (!Object.values(USER_ROLES).includes(role)) {
