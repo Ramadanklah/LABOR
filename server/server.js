@@ -1195,6 +1195,103 @@ app.post('/api/users', authenticateToken, requireAdmin, asyncHandler(async (req,
   }
 }));
 
+// Enhanced user registration with 2FA setup (Admin only)
+app.post('/api/users/register-with-2fa', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
+  try {
+    // Enhanced input validation (same as above)
+    const { email, password, firstName, lastName, role, bsnr, lanr } = req.body;
+    
+    // Required field validation
+    if (!email || !password || !firstName || !lastName || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: email, password, firstName, lastName, role'
+      });
+    }
+
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid email format'
+      });
+    }
+
+    // Name validation (prevent injection)
+    const nameRegex = /^[a-zA-ZäöüßÄÖÜ\s\-']{2,50}$/;
+    if (!nameRegex.test(firstName) || !nameRegex.test(lastName)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid name format. Names must be 2-50 characters and contain only letters, spaces, hyphens, and apostrophes.'
+      });
+    }
+
+    // Role validation
+    const validRoles = ['admin', 'doctor', 'lab_technician', 'patient'];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role. Must be one of: admin, doctor, lab_technician, patient'
+      });
+    }
+
+    // BSNR/LANR validation if provided
+    if (bsnr && !/^\d{9}$/.test(bsnr)) {
+      return res.status(400).json({
+        success: false,
+        message: 'BSNR must be exactly 9 digits'
+      });
+    }
+
+    if (lanr && !/^\d{7}$/.test(lanr)) {
+      return res.status(400).json({
+        success: false,
+        message: 'LANR must be exactly 7 digits'
+      });
+    }
+
+    // Create user first
+    const newUser = await userModel.createUser(req.body);
+    
+    // Generate 2FA secret
+    const { otpauthUrl, base32 } = userModel.generateTwoFactorSecret(newUser.id);
+    
+    // Generate QR code URL
+    const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(otpauthUrl)}`;
+    
+    logger.info(`New user created with 2FA setup: ${newUser.email} (${newUser.role}) by ${req.user.email}`);
+    
+    // Return user info with 2FA setup data
+    res.status(201).json({
+      success: true,
+      message: 'User created successfully with 2FA setup',
+      user: newUser,
+      twoFactorSetup: {
+        otpauthUrl,
+        secret: base32,
+        qrCode: qrCodeUrl,
+        instructions: [
+          '1. Scan the QR code with your authenticator app',
+          '2. Or manually enter the secret key',
+          '3. The app will generate a 6-digit code',
+          '4. Use that code when logging in'
+        ]
+      }
+    });
+  } catch (error) {
+    logger.error(`User creation with 2FA failed: ${error.message}`, { 
+      attemptedBy: req.user.email,
+      attemptedData: { email: req.body.email, role: req.body.role }
+    });
+    
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
 // Get all users (Admin only)
 app.get('/api/users', authenticateToken, requireAdmin, (req, res) => {
   const { role, isActive, search } = req.query;
