@@ -941,6 +941,77 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Create initial admin user (only if no users exist)
+app.post('/api/setup/initial-admin', asyncHandler(async (req, res) => {
+  // Only allow if no users exist
+  const userStats = userModel.getUserStats();
+  if (userStats.total > 0) {
+    return res.status(403).json({
+      success: false,
+      message: 'Users already exist. Initial admin setup not allowed.'
+    });
+  }
+
+  const { email, password, firstName, lastName } = req.body;
+
+  // Validation
+  if (!email || !password || !firstName || !lastName) {
+    return res.status(400).json({
+      success: false,
+      message: 'Missing required fields: email, password, firstName, lastName'
+    });
+  }
+
+  // Email validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid email format'
+    });
+  }
+
+  // Password validation (relaxed for initial setup)
+  if (password.length < 8) {
+    return res.status(400).json({
+      success: false,
+      message: 'Password must be at least 8 characters long'
+    });
+  }
+
+  try {
+    const adminUser = await userModel.createUser({
+      email,
+      password,
+      firstName,
+      lastName,
+      role: USER_ROLES.ADMIN,
+      bsnr: '999999999',
+      lanr: '9999999',
+      isActive: true
+    });
+
+    // Generate JWT token for immediate use
+    const token = userModel.generateToken(adminUser);
+
+    logger.info(`Initial admin user created: ${adminUser.email}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Initial admin user created successfully',
+      user: adminUser,
+      token,
+      securityWarning: 'CHANGE THE DEFAULT PASSWORD IMMEDIATELY!'
+    });
+  } catch (error) {
+    logger.error(`Initial admin creation failed: ${error.message}`);
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+}));
+
 // === AUTHENTICATION ROUTES ===
 
 // Legacy login endpoint for backward compatibility

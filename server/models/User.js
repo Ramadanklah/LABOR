@@ -57,6 +57,36 @@ class UserModel {
     // Initialize with default admin user
     if (process.env.NODE_ENV !== 'production') {
       this.initializeDefaultUsers();
+    } else {
+      // In production, create admin user if no users exist
+      this.initializeProductionAdmin();
+    }
+  }
+
+  // Initialize production admin user if no users exist
+  async initializeProductionAdmin() {
+    // Only create admin if no users exist
+    if (this.users.size === 0) {
+      console.log('Production mode: No users found, creating initial admin user');
+      try {
+        const adminUser = await this.createUser({
+          email: 'admin@laborresults.de',
+          password: 'admin123',
+          firstName: 'System',
+          lastName: 'Administrator',
+          role: USER_ROLES.ADMIN,
+          bsnr: '999999999',
+          lanr: '9999999',
+          isActive: true
+        });
+
+        console.log('✅ Initial admin user created for production');
+        console.log(`   Email: ${adminUser.email}`);
+        console.log(`   Password: admin123 (CHANGE IMMEDIATELY!)`);
+        console.log('   ⚠️  IMPORTANT: Change the default password immediately!');
+      } catch (error) {
+        console.error('Error creating production admin user:', error);
+      }
     }
   }
 
