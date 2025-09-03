@@ -107,62 +107,86 @@ class LDTGenerator {
 
   // Convert lab results to LDT format
   generateLDT(results, options = {}) {
-    this.records = [];
-    this.recordNumber = 1;
+    try {
+      // Validate input
+      if (!Array.isArray(results)) {
+        throw new Error('Results must be an array');
+      }
 
-    // Header
-    this.generateHeader();
+      if (results.length === 0) {
+        throw new Error('No results provided for LDT generation');
+      }
 
-    // Lab information
-    this.generateLabInfo(options.labInfo);
+      this.records = [];
+      this.recordNumber = 1;
 
-    // Group results by patient
-    const patientGroups = this.groupResultsByPatient(results);
+      // Header
+      this.generateHeader();
 
-    Object.keys(patientGroups).forEach(patientName => {
-      const patientResults = patientGroups[patientName];
-      const firstResult = patientResults[0];
+      // Lab information
+      this.generateLabInfo(options.labInfo);
 
-      // Extract patient info from first result
-      const patient = {
-        lastName: firstResult.patient.split(' ').pop(),
-        firstName: firstResult.patient.split(' ').slice(0, -1).join(' '),
-        patientId: firstResult.patient.replace(/\s/g, '').toUpperCase(),
-        birthDate: '19800101', // Default - would need real patient data
-        gender: 'U' // Unknown - would need real patient data
-      };
+      // Group results by patient
+      const patientGroups = this.groupResultsByPatient(results);
 
-      // Patient data
-      this.generatePatientData(patient);
+      Object.keys(patientGroups).forEach(patientName => {
+        try {
+          const patientResults = patientGroups[patientName];
+          const firstResult = patientResults[0];
 
-      // Request data (one per patient)
-      const request = {
-        requestId: firstResult.id,
-        requestDate: new Date(firstResult.date).toISOString().slice(0, 10).replace(/-/g, ''),
-        doctorId: firstResult.bsnr,
-        doctorName: `Practice ${firstResult.bsnr}`
-      };
-      this.generateRequestData(request);
+          // Extract patient info from first result
+          const patient = {
+            lastName: firstResult.patient.split(' ').pop(),
+            firstName: firstResult.patient.split(' ').slice(0, -1).join(' '),
+            patientId: firstResult.patient.replace(/\s/g, '').toUpperCase(),
+            birthDate: '19800101', // Default - would need real patient data
+            gender: 'U' // Unknown - would need real patient data
+          };
 
-      // Results for this patient
-      patientResults.forEach(result => {
-        const test = {
-          testCode: result.type.replace(/\s/g, '').toUpperCase(),
-          testName: result.type,
-          status: result.status,
-          date: result.date,
-          value: this.generateMockValue(result.type),
-          unit: this.getMockUnit(result.type),
-          referenceRange: this.getMockReferenceRange(result.type)
-        };
-        this.generateTestResult(test);
+          // Patient data
+          this.generatePatientData(patient);
+
+          // Request data (one per patient)
+          const request = {
+            requestId: firstResult.id,
+            requestDate: new Date(firstResult.date).toISOString().slice(0, 10).replace(/-/g, ''),
+            doctorId: firstResult.bsnr,
+            doctorName: `Practice ${firstResult.bsnr}`
+          };
+          this.generateRequestData(request);
+
+          // Results for this patient
+          patientResults.forEach(result => {
+            try {
+              const test = {
+                testCode: result.type.replace(/\s/g, '').toUpperCase(),
+                testName: result.type,
+                status: result.status,
+                date: result.date,
+                value: this.generateMockValue(result.type),
+                unit: this.getMockUnit(result.type),
+                referenceRange: this.getMockReferenceRange(result.type)
+              };
+              this.generateTestResult(test);
+            } catch (resultError) {
+              console.warn('Failed to generate test result:', resultError);
+              // Continue with other results
+            }
+          });
+        } catch (patientError) {
+          console.warn('Failed to generate patient data:', patientError);
+          // Continue with other patients
+        }
       });
-    });
 
-    // Footer
-    this.generateFooter();
+      // Footer
+      this.generateFooter();
 
-    return this.records.join('\r\n');
+      return this.records.join('\r\n');
+    } catch (error) {
+      console.error('LDT generation failed:', error);
+      throw new Error(`Failed to generate LDT: ${error.message}`);
+    }
   }
 
   // Helper function to group results by patient
