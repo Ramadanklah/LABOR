@@ -19,6 +19,7 @@ const winston = require('winston');
 const path = require('path');
 const LDTGenerator = require('./utils/ldtGenerator');
 const PDFGenerator = require('./utils/pdfGenerator');
+const { sendLDTToMirth } = require('./utils/mirthClient');
 const { UserModel, USER_ROLES, ROLE_PERMISSIONS } = require('./models/User');
 const bodyParser = require('body-parser');
 const parseLDT = require('./utils/ldtParser');
@@ -866,12 +867,25 @@ const mockDatabase = {
   // Raw inbound LDT messages received from external systems
   ldtMessages: [],
 
+  // Outbound delivery tracking
+  deliveries: [],
+
   /**
    * Persist a newly received LDT message in memory.
    * @param {object} messageObj { id, receivedAt, raw, parsed }
    */
   addLDTMessage(messageObj) {
     this.ldtMessages.push(messageObj);
+  },
+
+  addDelivery(delivery) {
+    this.deliveries.push({
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      status: 'queued',
+      attempts: 0,
+      ...delivery,
+    });
   },
 
   /**
@@ -1819,6 +1833,64 @@ app.get('/api/results/:resultId', authenticateToken, asyncHandler(async (req, re
 
 // === ADMIN ENDPOINTS ===
 
+// Publish a specific result to Mirth (Admin or Lab Technician)
+app.post('/api/results/:resultId/publish', authenticateToken, asyncHandler(async (req, res) => {
+  const { resultId } = req.params;
+
+  if (!(req.user.role === USER_ROLES.ADMIN || req.user.role === USER_ROLES.LAB_TECHNICIAN)) {
+    return res.status(403).json({ success: false, message: 'Insufficient permissions' });
+  }
+
+  const result = mockDatabase.results.find(r => r.id === resultId);
+  if (!result) {
+    return res.status(404).json({ success: false, message: 'Result not found' });
+  }
+
+  try {
+    const ldtGenerator = new LDTGenerator();
+    const ldtContent = ldtGenerator.generateLDT([result], {
+      labInfo: {
+        name: process.env.LAB_NAME || 'Labor Results System',
+        street: process.env.LAB_STREET || 'Medical Center Street 1',
+        zipCode: process.env.LAB_ZIP || '12345',
+        city: process.env.LAB_CITY || 'Medical City',
+        phone: process.env.LAB_PHONE || '+49-123-456789',
+        email: process.env.LAB_EMAIL || 'info@laborresults.de'
+      },
+      provider: { bsnr: result.bsnr, lanr: result.lanr }
+    });
+
+    mockDatabase.addDelivery({
+      resultId,
+      userEmail: req.user.email,
+      bodyHash: crypto.createHash('sha256').update(ldtContent).digest('hex'),
+      endpoint: process.env.MIRTH_OUTBOUND_URL || null,
+    });
+
+    const resp = await sendLDTToMirth(ldtContent);
+
+    // Update tracking (simple append)
+    mockDatabase.addDelivery({
+      resultId,
+      userEmail: req.user.email,
+      status: 'delivered',
+      responseStatus: resp.status,
+    });
+
+    logger.info('Published result to Mirth', { resultId, status: resp.status });
+    return res.json({ success: true, message: 'Delivered to Mirth', status: resp.status });
+  } catch (error) {
+    mockDatabase.addDelivery({
+      resultId,
+      userEmail: req.user.email,
+      status: 'failed',
+      error: error.message,
+    });
+    logger.error('Failed to publish result to Mirth', { resultId, error: error.message });
+    return res.status(502).json({ success: false, message: 'Delivery failed', error: error.message });
+  }
+}));
+
 // Get unassigned results (Admin only)
 app.get('/api/admin/unassigned-results', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const unassignedResults = mockDatabase.getUnassignedResults(req.user);
@@ -2159,7 +2231,8 @@ app.get('/api/download/ldt', authenticateToken, requirePermission('canDownloadRe
         city: process.env.LAB_CITY || 'Medical City',
         phone: process.env.LAB_PHONE || '+49-123-456789',
         email: process.env.LAB_EMAIL || 'info@laborresults.de'
-      }
+      },
+      provider: { bsnr: req.user.bsnr, lanr: req.user.lanr }
     });
 
     res.setHeader('Content-Type', 'application/octet-stream');
@@ -2206,7 +2279,8 @@ app.get('/api/download/ldt/:resultId', authenticateToken, requirePermission('can
         city: process.env.LAB_CITY || 'Medical City',
         phone: process.env.LAB_PHONE || '+49-123-456789',
         email: process.env.LAB_EMAIL || 'info@laborresults.de'
-      }
+      },
+      provider: { bsnr: anyResult.bsnr, lanr: anyResult.lanr }
     });
 
     res.setHeader('Content-Type', 'application/octet-stream');
