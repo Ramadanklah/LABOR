@@ -1,4 +1,5 @@
 // Performance monitoring and optimization utilities
+import React from 'react';
 
 class PerformanceMonitor {
   constructor() {

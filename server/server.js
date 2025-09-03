@@ -167,9 +167,9 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'"],
       fontSrc: ["'self'", "https:"],
-      objectSrc: ["'none"],
+      objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
-      frameSrc: ["'none"],
+      frameSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
       upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
@@ -374,7 +374,7 @@ const corsOptions = {
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Tenant-Id'],
   maxAge: 86400, // Cache preflight requests for 24 hours
 };
 app.use(cors(corsOptions));
@@ -440,8 +440,24 @@ app.use((req, res, next) => {
   res.send = function(data) {
     try {
       const duration = Date.now() - start;
-      const bodyBuffer = Buffer.isBuffer(data) ? data : Buffer.from(typeof data === 'string' ? data : JSON.stringify(data || ''));
-      const size = bodyBuffer.length;
+      let size = 0;
+      if (Buffer.isBuffer(data)) {
+        size = data.length;
+      } else if (typeof data === 'string') {
+        size = Buffer.byteLength(data, 'utf8');
+      } else {
+        // Avoid heavy stringify for large objects; approximate size using header if available
+        const contentLengthHeader = res.getHeader('Content-Length');
+        if (contentLengthHeader) {
+          size = Number(contentLengthHeader) || 0;
+        } else {
+          try {
+            size = Buffer.byteLength(JSON.stringify(data || ''), 'utf8');
+          } catch (_) {
+            size = 0;
+          }
+        }
+      }
       
       logger.info(`${req.method} ${req.originalUrl} - ${res.statusCode} - ${duration}ms - ${size}bytes - User: ${req.user?.email || 'anonymous'}`);
       
@@ -474,7 +490,7 @@ const cacheMiddleware = (duration = 300) => (req, res, next) => {
   }
   
   try {
-    const key = `${req.originalUrl}-${req.user?.userId || 'anonymous'}`;
+    const key = `${req.originalUrl}-${req.user?.id || 'anonymous'}`;
     const cached = cache.get(key);
     
     if (cached) {
@@ -927,8 +943,10 @@ const mockDatabase = {
         
       case USER_ROLES.PATIENT:
         // Patients can only see their own results (would need patient ID matching)
-        return filteredResults.filter(result => 
-          result.patientEmail === user.email // This would be implemented with proper patient records
+        return filteredResults.filter(result =>
+          result.assignedTo === user.email ||
+          (Array.isArray(result.assignedUsers) && result.assignedUsers.includes(user.email)) ||
+          result.patientEmail === user.email
         );
         
       default:
