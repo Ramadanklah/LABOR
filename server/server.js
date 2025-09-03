@@ -5,6 +5,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
+const csrf = require('csurf');
 const NodeCache = require('node-cache');
 const winston = require('winston');
 const path = require('path');
@@ -76,16 +77,39 @@ register.registerMetric(httpRequestCounter);
 const tokenStore = new Map(); // token -> { userId, expiresAt, revoked }
 const revokedTokens = new Set();
 
-// Clean up expired tokens every hour
-setInterval(() => {
+// Enhanced token cleanup with better memory management
+const cleanupExpiredTokens = () => {
   const now = Date.now();
+  let cleanedCount = 0;
+  
   for (const [token, data] of tokenStore.entries()) {
     if (data.expiresAt < now || data.revoked) {
       tokenStore.delete(token);
       revokedTokens.delete(token);
+      cleanedCount++;
     }
   }
-}, 60 * 60 * 1000); // Every hour
+  
+  // Also clean up revoked tokens set periodically
+  if (revokedTokens.size > 1000) {
+    const oldSize = revokedTokens.size;
+    // Keep only recent revoked tokens (last 1000)
+    const tokensArray = Array.from(revokedTokens);
+    revokedTokens.clear();
+    tokensArray.slice(-1000).forEach(token => revokedTokens.add(token));
+    logger.info(`Cleaned up revoked tokens: ${oldSize} -> ${revokedTokens.size}`);
+  }
+  
+  if (cleanedCount > 0) {
+    logger.info(`Cleaned up ${cleanedCount} expired tokens. Active tokens: ${tokenStore.size}`);
+  }
+};
+
+// Clean up expired tokens every 15 minutes
+setInterval(cleanupExpiredTokens, 15 * 60 * 1000);
+
+// Initial cleanup on startup
+cleanupExpiredTokens();
 
 // Ensure raw logs directory exists for append-only raw message storage
 const RAW_LOG_DIR = path.join(__dirname, 'logs_raw');
@@ -374,6 +398,23 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
+
+// CSRF protection for state-changing operations
+const csrfProtection = csrf({
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict'
+  }
+});
+
+// Apply CSRF protection to all POST, PUT, DELETE requests
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    return csrfProtection(req, res, next);
+  }
+  next();
+});
 
 // Enhanced body parsing with security limits
 const maxBodySize = process.env.NODE_ENV === 'production' ? '5mb' : '10mb';
@@ -1091,16 +1132,38 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
   try {
     const authResult = await userModel.authenticateUser(email, password, bsnr, lanr, otp);
     
-    logger.info(`Successful login for user: ${authResult.user.email} (${authResult.user.role})`);
+    // Generate new session ID to prevent session fixation
+    const sessionId = crypto.randomUUID();
+    
+    // Store session information
+    tokenStore.set(authResult.token, {
+      userId: authResult.user.id,
+      expiresAt: Date.now() + (15 * 60 * 1000), // 15 minutes
+      revoked: false,
+      sessionId: sessionId,
+      ip: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+    
+    logger.info(`Successful login for user: ${authResult.user.email} (${authResult.user.role})`, {
+      userId: authResult.user.id,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      sessionId: sessionId
+    });
     
     res.json({
       success: true,
       message: 'Login successful',
       token: authResult.token,
-      user: authResult.user
+      user: authResult.user,
+      sessionId: sessionId
     });
   } catch (error) {
-    logger.warn(`Failed login attempt: ${email || `${bsnr}/${lanr}`} - ${error.message}`);
+    logger.warn(`Failed login attempt: ${email || `${bsnr}/${lanr}`} - ${error.message}`, {
+      ip: req.ip,
+      userAgent: req.headers['user-agent']
+    });
     
     res.status(401).json({
       success: false,
@@ -1276,7 +1339,18 @@ app.post('/api/users', authenticateToken, requireAdmin, asyncHandler(async (req,
 
     const newUser = await userModel.createUser(req.body);
     
-    logger.info(`New user created: ${newUser.email} (${newUser.role}) by ${req.user.email}`);
+    // Enhanced audit logging for user creation
+    logger.info(`New user created: ${newUser.email} (${newUser.role}) by ${req.user.email}`, {
+      event: 'USER_CREATE',
+      newUserId: newUser.id,
+      newUserEmail: newUser.email,
+      newUserRole: newUser.role,
+      createdBy: req.user.email,
+      createdByRole: req.user.role,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      timestamp: new Date().toISOString()
+    });
     
     res.status(201).json({
       success: true,
@@ -1444,6 +1518,15 @@ app.put('/api/users/:userId', authenticateToken, asyncHandler(async (req, res) =
   const { userId } = req.params;
   const updates = req.body;
   
+  // Check if user exists
+  const targetUser = userModel.getUserById(userId);
+  if (!targetUser) {
+    return res.status(404).json({
+      success: false,
+      message: 'User not found'
+    });
+  }
+  
   // Users can update their own profile with limited fields
   if (req.user.id !== userId && req.user.role !== USER_ROLES.ADMIN) {
     return res.status(403).json({
@@ -1465,10 +1548,36 @@ app.put('/api/users/:userId', authenticateToken, asyncHandler(async (req, res) =
     }
   }
   
+  // Prevent privilege escalation - only admins can change roles or admin status
+  if (updates.role && req.user.role !== USER_ROLES.ADMIN) {
+    return res.status(403).json({
+      success: false,
+      message: 'Only administrators can change user roles'
+    });
+  }
+  
+  if (updates.isActive !== undefined && req.user.role !== USER_ROLES.ADMIN) {
+    return res.status(403).json({
+      success: false,
+      message: 'Only administrators can activate/deactivate users'
+    });
+  }
+  
   try {
     const updatedUser = await userModel.updateUser(userId, updates);
     
-    logger.info(`User updated: ${updatedUser.email} by ${req.user.email}`);
+    // Enhanced audit logging for user updates
+    logger.info(`User updated: ${updatedUser.email} by ${req.user.email}`, {
+      event: 'USER_UPDATE',
+      targetUserId: userId,
+      targetUserEmail: updatedUser.email,
+      updatedBy: req.user.email,
+      updatedByRole: req.user.role,
+      updatedFields: Object.keys(updates),
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      timestamp: new Date().toISOString()
+    });
     
     res.json({
       success: true,
@@ -1506,7 +1615,18 @@ app.delete('/api/users/:userId', authenticateToken, requireAdmin, asyncHandler(a
     
     userModel.deleteUser(userId);
     
-    logger.info(`User deleted: ${user.email} by ${req.user.email}`);
+    // Enhanced audit logging for user deletion
+    logger.info(`User deleted: ${user.email} by ${req.user.email}`, {
+      event: 'USER_DELETE',
+      deletedUserId: userId,
+      deletedUserEmail: user.email,
+      deletedUserRole: user.role,
+      deletedBy: req.user.email,
+      deletedByRole: req.user.role,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      timestamp: new Date().toISOString()
+    });
     
     res.json({
       success: true,

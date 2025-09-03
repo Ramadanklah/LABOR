@@ -147,6 +147,23 @@ class UserModel {
     }
   }
 
+  // Sanitize input to prevent XSS and injection attacks
+  sanitizeInput(input) {
+    if (typeof input !== 'string') return input;
+    return input
+      .trim()
+      .replace(/[<>\"'&]/g, (match) => {
+        const escapeMap = {
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#x27;',
+          '&': '&amp;'
+        };
+        return escapeMap[match];
+      });
+  }
+
   // Create new user
   async createUser(userData) {
     const {
@@ -164,51 +181,74 @@ class UserModel {
       twoFactorSecret = null
     } = userData;
 
+    // Sanitize all string inputs
+    const sanitizedData = {
+      email: this.sanitizeInput(email),
+      password: password, // Don't sanitize password as it may contain special chars
+      firstName: this.sanitizeInput(firstName),
+      lastName: this.sanitizeInput(lastName),
+      role: this.sanitizeInput(role),
+      bsnr: bsnr ? this.sanitizeInput(bsnr) : null,
+      lanr: lanr ? this.sanitizeInput(lanr) : null,
+      specialization: specialization ? this.sanitizeInput(specialization) : null,
+      department: department ? this.sanitizeInput(department) : null,
+      isActive,
+      isTwoFactorEnabled,
+      twoFactorSecret
+    };
+
     // Validation
-    if (!email || !password || !firstName || !lastName || !role) {
+    if (!sanitizedData.email || !sanitizedData.password || !sanitizedData.firstName || !sanitizedData.lastName || !sanitizedData.role) {
       throw new Error('Missing required fields');
     }
 
     // Enhanced email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
+    if (!emailRegex.test(sanitizedData.email)) {
       throw new Error('Invalid email format');
     }
 
     // Strong password validation for production
     if (process.env.NODE_ENV === 'production') {
-      if (password.length < 12) {
+      if (sanitizedData.password.length < 12) {
         throw new Error('Password must be at least 12 characters long');
       }
-      if (!/(?=.*[a-z])/.test(password)) {
+      if (!/(?=.*[a-z])/.test(sanitizedData.password)) {
         throw new Error('Password must contain at least one lowercase letter');
       }
-      if (!/(?=.*[A-Z])/.test(password)) {
+      if (!/(?=.*[A-Z])/.test(sanitizedData.password)) {
         throw new Error('Password must contain at least one uppercase letter');
       }
-      if (!/(?=.*\d)/.test(password)) {
+      if (!/(?=.*\d)/.test(sanitizedData.password)) {
         throw new Error('Password must contain at least one number');
       }
-      if (!/(?=.*[!@#$%^&*(),.?":{}|<>])/.test(password)) {
+      if (!/(?=.*[!@#$%^&*(),.?":{}|<>])/.test(sanitizedData.password)) {
         throw new Error('Password must contain at least one special character');
       }
     } else {
-      // Development mode: minimum 8 characters
-      if (password.length < 8) {
+      // Development mode: still require strong passwords for security
+      if (sanitizedData.password.length < 8) {
         throw new Error('Password must be at least 8 characters long');
+      }
+      // Even in development, require at least one number and one letter
+      if (!/(?=.*[a-zA-Z])/.test(sanitizedData.password)) {
+        throw new Error('Password must contain at least one letter');
+      }
+      if (!/(?=.*\d)/.test(sanitizedData.password)) {
+        throw new Error('Password must contain at least one number');
       }
     }
 
-    if (!Object.values(USER_ROLES).includes(role)) {
+    if (!Object.values(USER_ROLES).includes(sanitizedData.role)) {
       throw new Error('Invalid role');
     }
 
-    if (this.usersByEmail.has(email.toLowerCase())) {
+    if (this.usersByEmail.has(sanitizedData.email.toLowerCase())) {
       throw new Error('Email already exists');
     }
 
-    if (bsnr && lanr) {
-      const bsnrLanrKey = `${bsnr}-${lanr}`;
+    if (sanitizedData.bsnr && sanitizedData.lanr) {
+      const bsnrLanrKey = `${sanitizedData.bsnr}-${sanitizedData.lanr}`;
       if (this.usersByBsnrLanr.has(bsnrLanrKey)) {
         throw new Error('BSNR/LANR combination already exists');
       }
@@ -216,7 +256,7 @@ class UserModel {
 
     // Hash password
     const saltRounds = 12;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    const hashedPassword = await bcrypt.hash(sanitizedData.password, saltRounds);
 
     // Generate unique user ID
     const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -224,31 +264,31 @@ class UserModel {
     // Create user object
     const user = {
       id: userId,
-      email: email.toLowerCase(),
+      email: sanitizedData.email.toLowerCase(),
       password: hashedPassword,
-      firstName,
-      lastName,
-      role,
-      bsnr,
-      lanr,
-      specialization,
-      department,
-      isActive,
-      isTwoFactorEnabled,
-      twoFactorSecret,
+      firstName: sanitizedData.firstName,
+      lastName: sanitizedData.lastName,
+      role: sanitizedData.role,
+      bsnr: sanitizedData.bsnr,
+      lanr: sanitizedData.lanr,
+      specialization: sanitizedData.specialization,
+      department: sanitizedData.department,
+      isActive: sanitizedData.isActive,
+      isTwoFactorEnabled: sanitizedData.isTwoFactorEnabled,
+      twoFactorSecret: sanitizedData.twoFactorSecret,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       lastLogin: null,
       loginAttempts: 0,
-      permissions: ROLE_PERMISSIONS[role]
+      permissions: ROLE_PERMISSIONS[sanitizedData.role]
     };
 
     // Store user
     this.users.set(userId, user);
-    this.usersByEmail.set(email.toLowerCase(), userId);
+    this.usersByEmail.set(sanitizedData.email.toLowerCase(), userId);
 
-    if (bsnr && lanr) {
-      this.usersByBsnrLanr.set(`${bsnr}-${lanr}`, userId);
+    if (sanitizedData.bsnr && sanitizedData.lanr) {
+      this.usersByBsnrLanr.set(`${sanitizedData.bsnr}-${sanitizedData.lanr}`, userId);
     }
 
     // Return user without password
@@ -443,22 +483,39 @@ class UserModel {
     return userWithoutPassword;
   }
 
-  // Delete user
+  // Delete user with transaction safety
   deleteUser(userId) {
     const user = this.users.get(userId);
     if (!user) {
       throw new Error('User not found');
     }
 
-    // Remove from all mappings
-    this.users.delete(userId);
-    this.usersByEmail.delete(user.email);
+    // Store user data before deletion for rollback
+    const userData = { ...user };
+    const emailKey = user.email;
+    const bsnrLanrKey = user.bsnr && user.lanr ? `${user.bsnr}-${user.lanr}` : null;
 
-    if (user.bsnr && user.lanr) {
-      this.usersByBsnrLanr.delete(`${user.bsnr}-${user.lanr}`);
+    try {
+      // Remove from all mappings atomically
+      this.users.delete(userId);
+      this.usersByEmail.delete(emailKey);
+      
+      if (bsnrLanrKey) {
+        this.usersByBsnrLanr.delete(bsnrLanrKey);
+      }
+
+      return true;
+    } catch (error) {
+      // Rollback on error
+      this.users.set(userId, userData);
+      this.usersByEmail.set(emailKey, userId);
+      
+      if (bsnrLanrKey) {
+        this.usersByBsnrLanr.set(bsnrLanrKey, userId);
+      }
+      
+      throw new Error(`Failed to delete user: ${error.message}`);
     }
-
-    return true;
   }
 
   // List all users (admin only)
@@ -481,7 +538,19 @@ class UserModel {
     }
 
     if (filters.search) {
-      const searchTerm = filters.search.toLowerCase();
+      // Sanitize search term to prevent injection attacks
+      const searchTerm = this.sanitizeInput(filters.search).toLowerCase();
+      
+      // Limit search term length to prevent DoS
+      if (searchTerm.length > 100) {
+        throw new Error('Search term too long');
+      }
+      
+      // Only allow alphanumeric characters, spaces, hyphens, and dots for search
+      if (!/^[a-zA-Z0-9\s\-\.@]+$/.test(searchTerm)) {
+        throw new Error('Invalid characters in search term');
+      }
+      
       filteredUsers = filteredUsers.filter(user =>
         user.firstName.toLowerCase().includes(searchTerm) ||
         user.lastName.toLowerCase().includes(searchTerm) ||
