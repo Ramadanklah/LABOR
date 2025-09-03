@@ -6,6 +6,14 @@ const helmet = require('helmet');
 const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const csrf = require('csurf');
+let cookieParser = null;
+try {
+  cookieParser = require('cookie-parser');
+} catch (e) {
+  // Optional in development; CSRF will be relaxed without it
+  // eslint-disable-next-line no-console
+  console.warn('cookie-parser not installed; CSRF cookie support disabled in this environment');
+}
 const NodeCache = require('node-cache');
 const winston = require('winston');
 const path = require('path');
@@ -418,21 +426,40 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
 
+// Parse cookies before CSRF so cookie-based CSRF tokens work
+if (cookieParser) {
+  app.use(cookieParser());
+}
+
 // CSRF protection for state-changing operations
-const csrfProtection = csrf({
+const csrfProtection = cookieParser ? csrf({
   cookie: {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'strict'
   }
-});
+}) : (req, res, next) => next();
 
 // Apply CSRF protection to all POST, PUT, DELETE requests
 app.use((req, res, next) => {
-  if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
-    return csrfProtection(req, res, next);
+  // Skip CSRF checks for read-only requests and auth endpoints
+  if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+    return next();
   }
-  next();
+  if (req.path === '/api/login' || req.path === '/api/auth/login') {
+    return next();
+  }
+  return csrfProtection(req, res, next);
+});
+
+// CSRF token endpoint for clients to retrieve token
+app.get('/api/csrf-token', csrfProtection, (req, res) => {
+  try {
+    const token = typeof req.csrfToken === 'function' ? req.csrfToken() : 'disabled-in-dev';
+    res.json({ success: true, csrfToken: token });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Failed to generate CSRF token' });
+  }
 });
 
 // Enhanced body parsing with security limits
@@ -468,6 +495,14 @@ app.use(express.urlencoded({
 app.use((err, req, res, next) => {
   if (err && (err.type === 'entity.too.large' || err.type === 'entity.parse.failed' || err.message === 'Request body too large')) {
     return res.status(413).json({ success: false, message: 'Invalid JSON or payload too large' });
+  }
+  next(err);
+});
+
+// Handle CSRF errors gracefully
+app.use((err, req, res, next) => {
+  if (err && (err.code === 'EBADCSRFTOKEN' || err.message?.toLowerCase().includes('csrf'))) {
+    return res.status(403).json({ success: false, message: 'Invalid CSRF token' });
   }
   next(err);
 });

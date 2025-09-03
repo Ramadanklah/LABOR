@@ -10,11 +10,48 @@ class APIClient {
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'same-origin'
     };
     this.cacheConfig = {
       defaultTTL: 300000, // 5 minutes
       maxSize: 100, // Maximum cache entries
     };
+
+    // CSRF token storage
+    this.csrfToken = null;
+    this.csrfTokenFetchedAt = 0;
+    this.csrfTokenTTL = 10 * 60 * 1000; // 10 minutes
+  }
+
+  async fetchCsrfToken() {
+    try {
+      const response = await fetch(`${this.baseURL}/csrf-token`, {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch CSRF token');
+      }
+      const data = await response.json();
+      if (data && data.csrfToken) {
+        this.csrfToken = data.csrfToken;
+        this.csrfTokenFetchedAt = Date.now();
+        return this.csrfToken;
+      }
+      throw new Error('Invalid CSRF token response');
+    } catch (error) {
+      // Surface minimal info; callers may retry
+      throw error;
+    }
+  }
+
+  async getCsrfToken() {
+    const isFresh = this.csrfToken && (Date.now() - this.csrfTokenFetchedAt) < this.csrfTokenTTL;
+    if (isFresh) return this.csrfToken;
+    return this.fetchCsrfToken();
   }
 
   // Request interceptor for adding auth token
@@ -128,6 +165,20 @@ class APIClient {
       },
       signal: controller.signal,
     };
+
+    // Ensure CSRF token for state-changing requests
+    const methodUpper = (mergedOptions.method || 'GET').toUpperCase();
+    const isStateChanging = !['GET', 'HEAD', 'OPTIONS'].includes(methodUpper);
+    if (isStateChanging) {
+      try {
+        const csrfToken = await this.getCsrfToken();
+        mergedOptions.headers['X-CSRF-Token'] = csrfToken;
+        // Ensure credentials included for cookie-based CSRF secret
+        mergedOptions.credentials = mergedOptions.credentials || 'same-origin';
+      } catch (e) {
+        // If CSRF cannot be fetched, proceed but request may fail and bubble up
+      }
+    }
 
     // Apply request interceptors
     const finalOptions = await this.applyRequestInterceptors(url, mergedOptions);

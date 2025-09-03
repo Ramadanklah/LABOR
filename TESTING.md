@@ -31,7 +31,7 @@ You can test the backend endpoints directly using curl or a tool like Postman:
 # Valid credentials
 curl -X POST http://localhost:5000/api/login \
   -H "Content-Type: application/json" \
-  -d '{"bsnr": "123456789", "lanr": "1234567", "password": "securepassword"}'
+  -d '{"bsnr": "123456789", "lanr": "1234567", "password": "doctor123"}'
 
 # Expected response:
 # {"success":true,"message":"Login successful","token":"fake-jwt-token"}
@@ -47,7 +47,7 @@ curl -X POST http://localhost:5000/api/login \
 
 #### Test Results Endpoint
 ```bash
-curl -X GET http://localhost:5000/api/results
+curl -H "Authorization: Bearer <TOKEN>" -X GET http://localhost:5000/api/results
 
 # Expected response: Array of 3 mock lab results
 ```
@@ -65,25 +65,33 @@ curl -X POST http://localhost:5000/api/mirth-webhook \
 #### Test Download Endpoints
 ```bash
 # Test LDT download (all results)
-curl -X GET http://localhost:5000/api/download/ldt \
+curl -H "Authorization: Bearer <TOKEN>" -X GET http://localhost:5000/api/download/ldt \
   -o test_results.ldt
 
 # Test PDF download (all results)  
-curl -X GET http://localhost:5000/api/download/pdf \
+curl -H "Authorization: Bearer <TOKEN>" -X GET http://localhost:5000/api/download/pdf \
   -o test_results.pdf
 
 # Test specific result LDT download
-curl -X GET http://localhost:5000/api/download/ldt/res001 \
+curl -H "Authorization: Bearer <TOKEN>" -X GET http://localhost:5000/api/download/ldt/res001 \
   -o test_result_res001.ldt
 
 # Test specific result PDF download
-curl -X GET http://localhost:5000/api/download/pdf/res001 \
+curl -H "Authorization: Bearer <TOKEN>" -X GET http://localhost:5000/api/download/pdf/res001 \
   -o test_result_res001.pdf
 
 # Verify file types
 file test_results.ldt  # Should show: ASCII text
 file test_results.pdf  # Should show: PDF document
 ```
+
+### Quick E2E Script
+
+```bash
+node scripts/e2e-login-download.js
+```
+
+This will perform health check, login, fetch results, and download LDT/PDF to `/tmp/test_e2e.*`.
 
 ### 2. Test Frontend Application
 
