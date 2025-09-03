@@ -167,9 +167,9 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'"],
       fontSrc: ["'self'", "https:"],
-      objectSrc: ["'none"],
+      objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
-      frameSrc: ["'none"],
+      frameSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
       upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
