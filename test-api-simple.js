@@ -148,6 +148,42 @@ async function testAPI() {
       console.log('   ❌ Results endpoint failed');
     }
 
+    // Test 6: Publish one result to Mirth (as lab)
+    console.log('\n6. 🚀 Publishing one result to Mirth...');
+    const labLoginData = JSON.stringify({ email: 'lab@laborresults.de', password: 'lab123' });
+    const labLogin = await makeRequest({
+      hostname: 'localhost',
+      port: 5002,
+      path: '/api/auth/login',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(labLoginData) }
+    }, labLoginData);
+    if (labLogin.status === 200 && labLogin.data && labLogin.data.token) {
+      const labToken = labLogin.data.token;
+      const list = await makeRequest({
+        hostname: 'localhost',
+        port: 5002,
+        path: '/api/results',
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${labToken}` }
+      });
+      const any = list.data && list.data.results && list.data.results[0];
+      if (any) {
+        const resp = await makeRequest({
+          hostname: 'localhost',
+          port: 5002,
+          path: `/api/results/${any.id}/publish`,
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${labToken}` }
+        });
+        console.log('   Publish response:', JSON.stringify(resp.data));
+      } else {
+        console.log('   No results available to publish');
+      }
+    } else {
+      console.log('   Lab login failed; skipping publish test');
+    }
+
     console.log('\n🎉 API test completed!');
 
   } catch (error) {
