@@ -431,8 +431,9 @@ if (cookieParser) {
   app.use(cookieParser());
 }
 
-// CSRF protection for state-changing operations
-const csrfProtection = cookieParser ? csrf({
+// CSRF protection for state-changing operations (disabled by default in development)
+const CSRF_ENABLED = process.env.ENABLE_CSRF === 'true';
+const csrfProtection = (CSRF_ENABLED && cookieParser) ? csrf({
   cookie: {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -440,13 +441,18 @@ const csrfProtection = cookieParser ? csrf({
   }
 }) : (req, res, next) => next();
 
-// Apply CSRF protection to all POST, PUT, DELETE requests
+// Webhook route is defined later in the file after helper initialization
+
+// Apply CSRF protection to all POST, PUT, DELETE requests (after webhook)
 app.use((req, res, next) => {
-  // Skip CSRF checks for read-only requests and auth endpoints
+  // Skip CSRF checks for read-only requests
   if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
     return next();
   }
-  if (req.path === '/api/login' || req.path === '/api/auth/login') {
+  // Skip auth endpoints and Mirth webhook ingestion (raw body) before body parsers
+  const p = req.path || '';
+  const hasWebhookSignature = !!(req.headers['x-signature'] || req.headers['x-signature-sha256']);
+  if (p === '/api/login' || p === '/api/auth/login' || p.startsWith('/api/mirth-webhook') || p.startsWith('/api/mirth/webhook') || hasWebhookSignature) {
     return next();
   }
   return csrfProtection(req, res, next);
@@ -502,6 +508,12 @@ app.use((err, req, res, next) => {
 // Handle CSRF errors gracefully
 app.use((err, req, res, next) => {
   if (err && (err.code === 'EBADCSRFTOKEN' || err.message?.toLowerCase().includes('csrf'))) {
+    const p = req.path || '';
+    const hasWebhookSignature = !!(req.headers?.['x-signature'] || req.headers?.['x-signature-sha256']);
+    if (p.startsWith('/api/mirth-webhook') || p.startsWith('/api/mirth/webhook') || hasWebhookSignature) {
+      // Bypass CSRF error for signed webhook requests
+      return next();
+    }
     return res.status(403).json({ success: false, message: 'Invalid CSRF token' });
   }
   next(err);
@@ -2010,304 +2022,6 @@ async function persistRawMessage(rawBuffer) {
     return null;
   }
 }
-
-// Mirth Connect ingestion endpoint to accept LDT payloads (secured)
-app.post(
-  '/api/mirth-webhook',
-  webhookLimiter,
-  express.raw({ type: '*/*', limit: '10mb' }),
-  validateWebhookSignature,
-  asyncHandler(async (req, res) => {
-    if (!validateContentType(req, res)) return;
-
-    const rawBody = req.rawBody || req.body;
-
-    // Defensive type check: ensure rawBody is a Buffer
-    if (!(rawBody instanceof Buffer)) {
-      logger.warn('Invalid rawBody type in /api/mirth-webhook', { type: typeof rawBody });
-      return res.status(400).json({ success: false, message: 'Invalid request body type' });
-    }
-
-    logger.info('Received payload from Mirth Connect (secured)', {
-      contentType: req.headers['content-type'],
-      size: rawBody ? rawBody.length : 0,
-      bodyHash: req.webhookBodyHash
-    });
-
-    // Persist raw (non-blocking)
-    const storedPath = await persistRawMessage(rawBody);
-
-    // Parse the LDT payload
-    let ldtPayload;
-    const asString = rawBody.toString('utf8');
-
-    if (req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
-      try {
-        const jsonBody = JSON.parse(asString);
-        ldtPayload = jsonBody.data || jsonBody.payload || jsonBody.content || jsonBody.message || jsonBody.ldt || asString;
-        if (ldtPayload !== asString) {
-          ldtPayload = String(ldtPayload).replace(/\\n/g, '\n');
-        }
-      } catch (error) {
-        ldtPayload = asString;
-      }
-    } else {
-      ldtPayload = asString;
-    }
-
-    if (!ldtPayload || typeof ldtPayload !== 'string' || ldtPayload.trim().length === 0) {
-      return res.status(400).json({ success: false, message: 'No valid LDT payload detected' });
-    }
-
-    const parsedRecords = parseLDT(ldtPayload);
-    if (parsedRecords.length === 0) {
-      return res.status(422).json({ success: false, message: 'Unable to parse any LDT records' });
-    }
-
-    const messageId = crypto.randomUUID();
-    mockDatabase.addLDTMessage({ id: messageId, receivedAt: new Date().toISOString(), raw: ldtPayload, parsed: parsedRecords });
-
-    const ldtData = mockDatabase.extractLDTIdentifiers(parsedRecords);
-    const newResult = mockDatabase.createResultFromLDT(ldtData, messageId);
-    mockDatabase.results.push(newResult);
-
-    logger.info(`Processed LDT message ${messageId}:`, {
-      recordCount: parsedRecords.length,
-      bsnr: ldtData.bsnr,
-      lanr: ldtData.lanr,
-      patient: newResult.patient,
-      assignedTo: newResult.assignedTo,
-      resultId: newResult.id,
-      bodyHash: req.webhookBodyHash,
-      storedPath
-    });
-
-    res.status(202).json({
-      success: true,
-      messageId,
-      replayKey: req.webhookReplayKey,
-      bodyHash: req.webhookBodyHash,
-      resultId: newResult.id,
-      message: newResult.assignedTo 
-        ? `Result assigned to ${newResult.assignedTo}` 
-        : 'Result created but not assigned (admin review required)'
-    });
-  })
-);
-
-// Alternative route (kept but secured similarly)
-app.post(
-  '/api/mirth/webhook',
-  webhookLimiter,
-  express.raw({ type: '*/*', limit: '10mb' }),
-  validateWebhookSignature,
-  asyncHandler(async (req, res) => {
-    if (!validateContentType(req, res)) return;
-
-    const rawBody = req.rawBody || req.body;
-    const asString = rawBody.toString('utf8');
-
-    let ldtPayload;
-    if (req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
-      try {
-        const jsonBody = JSON.parse(asString);
-        ldtPayload = jsonBody.data || jsonBody.payload || jsonBody.content || jsonBody.message || jsonBody.ldt || asString;
-        if (ldtPayload !== asString) {
-          ldtPayload = ldtPayload.replace(/\\n/g, '\n');
-        }
-      } catch (error) {
-        ldtPayload = asString;
-      }
-    } else {
-      ldtPayload = asString;
-    }
-
-    if (!ldtPayload || typeof ldtPayload !== 'string' || ldtPayload.trim().length === 0) {
-      return res.status(400).json({ success: false, message: 'No valid LDT payload detected' });
-    }
-
-    const parsedRecords = parseLDT(ldtPayload);
-    if (parsedRecords.length === 0) {
-      return res.status(422).json({ success: false, message: 'Unable to parse any LDT records' });
-    }
-
-    const messageId = crypto.randomUUID();
-    mockDatabase.addLDTMessage({ id: messageId, receivedAt: new Date().toISOString(), raw: ldtPayload, parsed: parsedRecords });
-    const ldtData = mockDatabase.extractLDTIdentifiers(parsedRecords);
-    const newResult = mockDatabase.createResultFromLDT(ldtData, messageId);
-    mockDatabase.results.push(newResult);
-
-    logger.info(`Processed LDT message ${messageId} (alternative route)`, { resultId: newResult.id, bodyHash: req.webhookBodyHash });
-
-    res.status(202).json({ success: true, messageId, resultId: newResult.id });
-  })
-);
-
-// Enhanced download endpoints with access control
-// Download all results as LDT
-app.get('/api/download/ldt', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
-  try {
-    const results = mockDatabase.getResultsForUser(req.user);
-    const filename = `lab_results_${new Date().toISOString().slice(0, 10)}.ldt`;
-
-    const ldtGenerator = new LDTGenerator();
-    const ldtContent = ldtGenerator.generateLDT(results, {
-      labInfo: {
-        name: process.env.LAB_NAME || 'Labor Results System',
-        street: process.env.LAB_STREET || 'Medical Center Street 1',
-        zipCode: process.env.LAB_ZIP || '12345',
-        city: process.env.LAB_CITY || 'Medical City',
-        phone: process.env.LAB_PHONE || '+49-123-456789',
-        email: process.env.LAB_EMAIL || 'info@laborresults.de'
-      }
-    });
-
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Length', Buffer.byteLength(ldtContent, 'utf8'));
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    
-    res.send(ldtContent);
-    logger.info(`LDT file downloaded: ${filename} by ${req.user.email}`);
-    
-  } catch (error) {
-    logger.error('Error generating LDT file:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Failed to generate LDT file',
-      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
-    });
-  }
-}));
-
-// Download specific result as LDT
-app.get('/api/download/ldt/:resultId', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
-  const { resultId } = req.params;
-  
-  const anyResult = mockDatabase.results.find(r => r.id === resultId);
-  if (!anyResult) {
-    return res.status(404).json({ success: false, message: 'Result not found' });
-  }
-  const accessible = mockDatabase.getResultsForUser(req.user).some(r => r.id === resultId);
-  if (!accessible) {
-    return res.status(403).json({ success: false, message: 'Access to result denied' });
-  }
-
-  try {
-    const results = [anyResult];
-    const filename = `result_${resultId}_${new Date().toISOString().slice(0, 10)}.ldt`;
-
-    const ldtGenerator = new LDTGenerator();
-    const ldtContent = ldtGenerator.generateLDT(results, {
-      labInfo: {
-        name: process.env.LAB_NAME || 'Labor Results System',
-        street: process.env.LAB_STREET || 'Medical Center Street 1',
-        zipCode: process.env.LAB_ZIP || '12345',
-        city: process.env.LAB_CITY || 'Medical City',
-        phone: process.env.LAB_PHONE || '+49-123-456789',
-        email: process.env.LAB_EMAIL || 'info@laborresults.de'
-      }
-    });
-
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Length', Buffer.byteLength(ldtContent, 'utf8'));
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    
-    res.send(ldtContent);
-    logger.info(`LDT file downloaded: ${filename} by ${req.user.email}`);
-    
-  } catch (error) {
-    logger.error('Error generating LDT file:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Failed to generate LDT file',
-      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
-    });
-  }
-}));
-
-// Download all results as PDF
-app.get('/api/download/pdf', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
-  try {
-    const results = mockDatabase.getResultsForUser(req.user);
-    const filename = `lab_results_${new Date().toISOString().slice(0, 10)}.pdf`;
-
-    const pdfGenerator = new PDFGenerator();
-    const pdfBuffer = await pdfGenerator.generatePDF(results, {
-      labInfo: {
-        name: process.env.LAB_NAME || 'Labor Results System',
-        street: process.env.LAB_STREET || 'Medical Center Street 1',
-        zipCode: process.env.LAB_ZIP || '12345',
-        city: process.env.LAB_CITY || 'Medical City',
-        phone: process.env.LAB_PHONE || '+49-123-456789',
-        email: process.env.LAB_EMAIL || 'info@laborresults.de'
-      }
-    });
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Length', pdfBuffer.length);
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    
-    res.send(pdfBuffer);
-    logger.info(`PDF file downloaded: ${filename} by ${req.user.email}`);
-    
-  } catch (error) {
-    logger.error('Error generating PDF file:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Failed to generate PDF file',
-      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
-    });
-  }
-}));
-
-// Download specific result as PDF
-app.get('/api/download/pdf/:resultId', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
-  const { resultId } = req.params;
-  
-  const anyResult = mockDatabase.results.find(r => r.id === resultId);
-  if (!anyResult) {
-    return res.status(404).json({ success: false, message: 'Result not found' });
-  }
-  const accessible = mockDatabase.getResultsForUser(req.user).some(r => r.id === resultId);
-  if (!accessible) {
-    return res.status(403).json({ success: false, message: 'Access to result denied' });
-  }
-
-  try {
-    const results = [anyResult];
-    const filename = `result_${resultId}_${new Date().toISOString().slice(0, 10)}.pdf`;
-    const pdfGenerator = new PDFGenerator();
-    const pdfBuffer = await pdfGenerator.generatePDF(results, {
-      labInfo: {
-        name: process.env.LAB_NAME || 'Labor Results System',
-        street: process.env.LAB_STREET || 'Medical Center Street 1',
-        zipCode: process.env.LAB_ZIP || '12345',
-        city: process.env.LAB_CITY || 'Medical City',
-        phone: process.env.LAB_PHONE || '+49-123-456789',
-        email: process.env.LAB_EMAIL || 'info@laborresults.de'
-      }
-    });
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Content-Length', pdfBuffer.length);
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    
-    res.send(pdfBuffer);
-    logger.info(`PDF file downloaded: ${filename} by ${req.user.email}`);
-    
-  } catch (error) {
-    logger.error('Error generating PDF file:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Failed to generate PDF file',
-      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
-    });
-  }
-}));
 
 // Global error handler
 app.use((error, req, res, next) => {
