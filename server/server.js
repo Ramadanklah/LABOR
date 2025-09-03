@@ -111,9 +111,13 @@ setInterval(cleanupExpiredTokens, 15 * 60 * 1000);
 // Initial cleanup on startup
 cleanupExpiredTokens();
 
-// Ensure raw logs directory exists for append-only raw message storage
+// Ensure logs directories exist for Winston logging
+const LOGS_DIR = path.join(__dirname, 'logs');
 const RAW_LOG_DIR = path.join(__dirname, 'logs_raw');
 try {
+  if (!fs.existsSync(LOGS_DIR)) {
+    fs.mkdirSync(LOGS_DIR, { recursive: true });
+  }
   if (!fs.existsSync(RAW_LOG_DIR)) {
     fs.mkdirSync(RAW_LOG_DIR, { recursive: true });
   }
@@ -269,6 +273,7 @@ app.get('/metrics', async (req, res) => {
     const metrics = await register.metrics();
     res.end(metrics);
   } catch (err) {
+    logger.error('Metrics collection error:', err);
     res.status(500).send('Metrics collection error');
   }
 });
@@ -474,22 +479,29 @@ app.use((req, res, next) => {
   const originalSend = res.send;
   
   res.send = function(data) {
-    const duration = Date.now() - start;
-    const bodyBuffer = Buffer.isBuffer(data) ? data : Buffer.from(typeof data === 'string' ? data : JSON.stringify(data || ''));
-    const size = bodyBuffer.length;
-    
-    logger.info(`${req.method} ${req.originalUrl} - ${res.statusCode} - ${duration}ms - ${size}bytes - User: ${req.user?.email || 'anonymous'}`);
-    
-    // Add performance headers
-    res.set('X-Response-Time', `${duration}ms`);
-    res.set('X-Response-Size', `${size}bytes`);
-
-    // Increment metrics counter
     try {
-      httpRequestCounter.inc({ method: req.method, route: req.route?.path || req.originalUrl.split('?')[0], status: String(res.statusCode) });
-    } catch (_) {}
-    
-    return originalSend.call(this, data);
+      const duration = Date.now() - start;
+      const bodyBuffer = Buffer.isBuffer(data) ? data : Buffer.from(typeof data === 'string' ? data : JSON.stringify(data || ''));
+      const size = bodyBuffer.length;
+      
+      logger.info(`${req.method} ${req.originalUrl} - ${res.statusCode} - ${duration}ms - ${size}bytes - User: ${req.user?.email || 'anonymous'}`);
+      
+      // Add performance headers
+      res.set('X-Response-Time', `${duration}ms`);
+      res.set('X-Response-Size', `${size}bytes`);
+
+      // Increment metrics counter
+      try {
+        httpRequestCounter.inc({ method: req.method, route: req.route?.path || req.originalUrl.split('?')[0], status: String(res.statusCode) });
+      } catch (metricsError) {
+        logger.warn('Metrics increment failed:', metricsError);
+      }
+      
+      return originalSend.call(this, data);
+    } catch (loggingError) {
+      logger.error('Request logging failed:', loggingError);
+      return originalSend.call(this, data);
+    }
   };
   
   next();
@@ -502,29 +514,39 @@ const cacheMiddleware = (duration = 300) => (req, res, next) => {
     return next();
   }
   
-  const key = `${req.originalUrl}-${req.user?.userId || 'anonymous'}`;
-  const cached = cache.get(key);
-  
-  if (cached) {
-    logger.debug(`Cache hit for ${key}`);
-    res.set('X-Cache', 'HIT');
-    return res.json(cached);
-  }
-  
-  // Override res.json to cache the response
-  const originalJson = res.json;
-  res.json = function(body) {
-    // Only cache successful responses
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      cache.set(key, body, duration);
-      logger.debug(`Cache set for ${key} (${duration}s)`);
+  try {
+    const key = `${req.originalUrl}-${req.user?.userId || 'anonymous'}`;
+    const cached = cache.get(key);
+    
+    if (cached) {
+      logger.debug(`Cache hit for ${key}`);
+      res.set('X-Cache', 'HIT');
+      return res.json(cached);
     }
     
-    res.set('X-Cache', 'MISS');
-    return originalJson.call(this, body);
-  };
-  
-  next();
+    // Override res.json to cache the response
+    const originalJson = res.json;
+    res.json = function(body) {
+      try {
+        // Only cache successful responses
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          cache.set(key, body, duration);
+          logger.debug(`Cache set for ${key} (${duration}s)`);
+        }
+        
+        res.set('X-Cache', 'MISS');
+        return originalJson.call(this, body);
+      } catch (cacheError) {
+        logger.warn('Cache operation failed:', cacheError);
+        return originalJson.call(this, body);
+      }
+    };
+    
+    next();
+  } catch (error) {
+    logger.error('Cache middleware error:', error);
+    next();
+  }
 };
 
 // Async error handler
@@ -603,11 +625,16 @@ const authenticateToken = (req, res, next) => {
     }
 
     // Update token store with current user info
-    tokenStore.set(token, {
-      userId: user.id,
-      expiresAt: decoded.exp ? decoded.exp * 1000 : Date.now() + (15 * 60 * 1000), // 15 minutes default
-      revoked: false
-    });
+    try {
+      tokenStore.set(token, {
+        userId: user.id,
+        expiresAt: decoded.exp ? decoded.exp * 1000 : Date.now() + (15 * 60 * 1000), // 15 minutes default
+        revoked: false
+      });
+    } catch (tokenStoreError) {
+      logger.warn('Failed to update token store:', tokenStoreError);
+      // Continue anyway as this is not critical
+    }
 
     req.user = user;
     next();
@@ -666,26 +693,31 @@ const mockDatabase = {
    * @param {Object} details - Additional details
    */
   logAuditEvent(event, user, details = {}) {
-    const auditEntry = {
-      id: crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      event,
-      userId: user.id,
-      userEmail: user.email,
-      userRole: user.role,
-      details,
-      ipAddress: details.ipAddress || 'unknown'
-    };
-    
-    this.auditLog.push(auditEntry);
-    
-    // Also log to Winston
-    logger.info(`AUDIT: ${event}`, {
-      userId: user.id,
-      userEmail: user.email,
-      userRole: user.role,
-      details
-    });
+    try {
+      const auditEntry = {
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        event,
+        userId: user.id,
+        userEmail: user.email,
+        userRole: user.role,
+        details,
+        ipAddress: details.ipAddress || 'unknown'
+      };
+      
+      this.auditLog.push(auditEntry);
+      
+      // Also log to Winston
+      logger.info(`AUDIT: ${event}`, {
+        userId: user.id,
+        userEmail: user.email,
+        userRole: user.role,
+        details
+      });
+    } catch (auditError) {
+      logger.error('Audit logging failed:', auditError);
+      // Continue execution as audit failure shouldn't break the main flow
+    }
   },
   // Enhanced results with user associations and LDT data
   results: [
@@ -2234,47 +2266,78 @@ app.use((req, res) => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received, shutting down gracefully');
-  process.exit(0);
+  try {
+    // Clean up resources
+    if (server) {
+      server.close(() => {
+        logger.info('Server closed');
+        process.exit(0);
+      });
+    } else {
+      process.exit(0);
+    }
+  } catch (shutdownError) {
+    logger.error('Error during graceful shutdown:', shutdownError);
+    process.exit(1);
+  }
 });
 
 process.on('SIGINT', () => {
   logger.info('SIGINT received, shutting down gracefully');
-  process.exit(0);
+  try {
+    // Clean up resources
+    if (server) {
+      server.close(() => {
+        logger.info('Server closed');
+        process.exit(0);
+      });
+    } else {
+      process.exit(0);
+    }
+  } catch (shutdownError) {
+    logger.error('Error during graceful shutdown:', shutdownError);
+    process.exit(1);
+  }
 });
 
 // Start server with port conflict handling
 function startServer(port, retries = 3) {
-  const server = app.listen(port, () => {
-    logger.info(`Server running on http://localhost:${port}`);
-    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    logger.info('User management system initialized with default users:');
-    logger.info('  Admin: admin@laborresults.de / admin123');
-    logger.info('  Doctor: doctor@laborresults.de / doctor123');
-    logger.info('  Lab Tech: lab@laborresults.de / lab123');
-  });
+  try {
+    const server = app.listen(port, () => {
+      logger.info(`Server running on http://localhost:${port}`);
+      logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      logger.info('User management system initialized with default users:');
+      logger.info('  Admin: admin@laborresults.de / admin123');
+      logger.info('  Doctor: doctor@laborresults.de / doctor123');
+      logger.info('  Lab Tech: lab@laborresults.de / lab123');
+    });
 
-  // Handle server errors
-  server.on('error', (error) => {
-    if (error.code === 'EADDRINUSE') {
-      logger.warn(`Port ${port} is already in use`);
-      if (retries > 0) {
-        const newPort = port + 1;
-        logger.info(`Trying port ${newPort}...`);
-        server.close();
-        setTimeout(() => startServer(newPort, retries - 1), 1000);
+    // Handle server errors
+    server.on('error', (error) => {
+      if (error.code === 'EADDRINUSE') {
+        logger.warn(`Port ${port} is already in use`);
+        if (retries > 0) {
+          const newPort = port + 1;
+          logger.info(`Trying port ${newPort}...`);
+          server.close();
+          setTimeout(() => startServer(newPort, retries - 1), 1000);
+        } else {
+          logger.error('No available ports found. Please stop the process using port 5000 or use a different port.');
+          logger.error('On Windows, run: netstat -ano | findstr :5000 to find the process, then taskkill /PID <pid> /F');
+          logger.error('Or set a different PORT environment variable: SET PORT=3001 && npm start');
+          process.exit(1);
+        }
       } else {
-        logger.error('No available ports found. Please stop the process using port 5000 or use a different port.');
-        logger.error('On Windows, run: netstat -ano | findstr :5000 to find the process, then taskkill /PID <pid> /F');
-        logger.error('Or set a different PORT environment variable: SET PORT=3001 && npm start');
+        logger.error('Server error:', error);
         process.exit(1);
       }
-    } else {
-      logger.error('Server error:', error);
-      process.exit(1);
-    }
-  });
+    });
 
-  return server;
+    return server;
+  } catch (startupError) {
+    logger.error('Failed to start server:', startupError);
+    process.exit(1);
+  }
 }
 
 const server = startServer(PORT);

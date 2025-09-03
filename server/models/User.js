@@ -80,10 +80,13 @@ class UserModel {
           isActive: true
         });
 
-        console.log('✅ Initial admin user created for production');
-        console.log(`   Email: ${adminUser.email}`);
-        console.log(`   Password: admin123 (CHANGE IMMEDIATELY!)`);
-        console.log('   ⚠️  IMPORTANT: Change the default password immediately!');
+        // Log admin user creation (only in development/production setup)
+        if (process.env.NODE_ENV !== 'production' || process.env.LOG_ADMIN_CREATION === 'true') {
+          console.log('✅ Initial admin user created for production');
+          console.log(`   Email: ${adminUser.email}`);
+          console.log(`   Password: admin123 (CHANGE IMMEDIATELY!)`);
+          console.log('   ⚠️  IMPORTANT: Change the default password immediately!');
+        }
       } catch (error) {
         console.error('Error creating production admin user:', error);
       }

@@ -84,9 +84,15 @@ function ResultsDashboard({ token, onLogout }) {
   // Memoized filtered results for performance
   const filteredResults = useMemo(() => {
     // Ensure results is always an array
-    console.log('Results in useMemo:', results, 'Type:', typeof results, 'Is array:', Array.isArray(results)); // Debug log
+    // Debug logging only in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Results in useMemo:', results, 'Type:', typeof results, 'Is array:', Array.isArray(results));
+    }
     let filtered = Array.isArray(results) ? results : [];
-    console.log('Filtered after array check:', filtered, 'Length:', filtered.length); // Debug log
+          // Debug logging only in development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Filtered after array check:', filtered, 'Length:', filtered.length);
+      }
 
     if (searchTerm) {
       const searchLower = String(searchTerm).toLowerCase();
@@ -110,7 +116,10 @@ function ResultsDashboard({ token, onLogout }) {
 
   // Memoized pagination
   const paginatedResults = useMemo(() => {
-    console.log('Paginating results:', filteredResults, 'Type:', typeof filteredResults, 'Is array:', Array.isArray(filteredResults)); // Debug log
+    // Debug logging only in development
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Paginating results:', filteredResults, 'Type:', typeof filteredResults, 'Is array:', Array.isArray(filteredResults));
+    }
     if (!Array.isArray(filteredResults)) {
       console.error('filteredResults is not an array!', filteredResults);
       return [];
@@ -139,7 +148,10 @@ function ResultsDashboard({ token, onLogout }) {
   const fetchResults = useCallback(async () => {
     try {
       setLoading(true);
-      console.log('Fetching results with token:', token ? 'Token present' : 'No token'); // Debug log
+      // Debug logging only in development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Fetching results with token:', token ? 'Token present' : 'No token');
+      }
       
       const response = await fetch('/api/results', {
         headers: {
@@ -148,13 +160,19 @@ function ResultsDashboard({ token, onLogout }) {
         },
       });
       
-      console.log('Response status:', response.status, 'OK:', response.ok); // Debug log
+      // Debug logging only in development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Response status:', response.status, 'OK:', response.ok);
+      }
       
       if (response.ok) {
         const data = await response.json();
-        console.log('API Response:', data); // Debug log
-        console.log('Data type:', typeof data, 'Is array:', Array.isArray(data)); // Debug log
-        console.log('Results:', data.results, 'Type:', typeof data.results, 'Is array:', Array.isArray(data.results)); // Debug log
+        // Debug logging only in development
+        if (process.env.NODE_ENV === 'development') {
+          console.log('API Response:', data);
+          console.log('Data type:', typeof data, 'Is array:', Array.isArray(data));
+          console.log('Results:', data.results, 'Type:', typeof data.results, 'Is array:', Array.isArray(data.results));
+        }
         
         // Extra safety check
         if (data && typeof data === 'object' && data.results) {
