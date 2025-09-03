@@ -61,6 +61,8 @@ model User {
 
   @@unique([email, tenantId])
   @@unique([bsnr, lanr, tenantId])
+  @@index([tenantId, role, isActive])
+  @@index([tenantId, lastLogin])
   @@map("users")
 }
 
@@ -126,6 +128,8 @@ model Result {
   @@index([tenantId, createdAt])
   @@index([bsnr, lanr])
   @@index([patientId])
+  @@index([tenantId, status, resultDate])
+  @@index([tenantId, bsnr, lanr, resultDate])
   @@map("results")
 }
 

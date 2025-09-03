@@ -151,9 +151,9 @@ const logger = winston.createLogger({
       maxsize: 5242880, // 5MB
       maxFiles: 5,
     }),
-    new winston.transports.Console({
+    ...(process.env.NODE_ENV !== 'production' ? [new winston.transports.Console({
       format: winston.format.simple()
-    })
+    })] : [])
   ],
 });
 
@@ -220,17 +220,17 @@ app.use((req, res, next) => {
 // Optimized compression with better settings
 app.use(compression({
   filter: (req, res) => {
-    // Don't compress small responses or already compressed content
-    if (req.headers['x-no-compression'] || 
-        req.headers['content-encoding'] ||
-        req.headers['content-length'] < 1024) {
-      return false;
-    }
+    if (req.headers['x-no-compression']) return false;
+    // Skip Server-Sent Events and if downstream proxies mark no-transform
+    const accept = req.headers['accept'] || '';
+    if (accept.includes('text/event-stream')) return false;
+    const cacheControl = res.getHeader && res.getHeader('Cache-Control');
+    if (typeof cacheControl === 'string' && cacheControl.includes('no-transform')) return false;
     return compression.filter(req, res);
   },
-  threshold: 1024, // Only compress responses larger than 1KB
-  level: 6, // Balanced compression level
-  memLevel: 8, // Memory usage for compression
+  threshold: 1024,
+  level: 6,
+  memLevel: 8,
 }));
 
 // Metrics endpoint
@@ -265,8 +265,10 @@ const limiter = rateLimit({
   skipFailedRequests: false,
   // Enhanced security for production
   keyGenerator: (req) => {
-    // Use IP + user agent for better rate limiting
-    return req.ip + ':' + (req.headers['user-agent'] || 'unknown');
+    const tenant = req.tenantId || 'default';
+    const userId = req.user?.id || 'anonymous';
+    const ua = req.headers['user-agent'] || 'unknown';
+    return `${tenant}:${userId}:${req.ip}:${ua}`;
   },
   handler: (req, res) => {
     logger.warn(`Rate limit exceeded for IP: ${req.ip}`);
@@ -285,7 +287,11 @@ const authLimiter = rateLimit({
   message: 'Too many login attempts, please try again later.',
   skipSuccessfulRequests: true,
   skipFailedRequests: false,
-  keyGenerator: (req) => req.ip,
+  keyGenerator: (req) => {
+    const tenant = req.tenantId || 'default';
+    const identifier = (req.body?.email) || `${req.body?.bsnr || ''}-${req.body?.lanr || ''}` || 'anonymous';
+    return `${tenant}:${req.ip}:${identifier}`;
+  },
   handler: (req, res) => {
     logger.warn(`Auth rate limit exceeded for IP: ${req.ip}`);
     res.status(429).json({
@@ -303,7 +309,11 @@ const downloadLimiter = rateLimit({
   message: 'Too many download requests, please try again later.',
   skipSuccessfulRequests: true,
   skipFailedRequests: false,
-  keyGenerator: (req) => req.ip,
+  keyGenerator: (req) => {
+    const tenant = req.tenantId || 'default';
+    const userId = req.user?.id || 'anonymous';
+    return `${tenant}:${userId}:${req.ip}`;
+  },
   handler: (req, res) => {
     logger.warn(`Download rate limit exceeded for IP: ${req.ip}`);
     res.status(429).json({
@@ -321,7 +331,11 @@ const adminLimiter = rateLimit({
   message: 'Too many admin requests, please try again later.',
   skipSuccessfulRequests: false,
   skipFailedRequests: false,
-  keyGenerator: (req) => req.ip,
+  keyGenerator: (req) => {
+    const tenant = req.tenantId || 'default';
+    const userId = req.user?.id || 'anonymous';
+    return `${tenant}:${userId}:${req.ip}`;
+  },
   handler: (req, res) => {
     logger.warn(`Admin rate limit exceeded for IP: ${req.ip}`);
     res.status(429).json({

@@ -89,7 +89,7 @@ const LoadingSpinner = () => (
 );
 
 // Navigation Component
-const Navigation = ({ currentUser, currentView, onViewChange, onLogout }) => {
+const Navigation = React.memo(({ currentUser, currentView, onViewChange, onLogout }) => {
   const navigation = [
     { 
       id: 'dashboard', 
@@ -192,7 +192,7 @@ const Navigation = ({ currentUser, currentView, onViewChange, onLogout }) => {
       </div>
     </nav>
   );
-};
+});
 
 function App() {
   const [token, setToken] = useState(null);
@@ -255,6 +255,10 @@ function App() {
     setCurrentUser(user);
     setIsLoggedIn(true);
     setCurrentView('dashboard'); // Default to dashboard view
+    try {
+      localStorage.setItem('authToken', authToken);
+      localStorage.setItem('userInfo', JSON.stringify(user));
+    } catch (_) {}
     
     // Clear any cached data on new login
     apiClient.clearCache();

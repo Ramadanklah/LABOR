@@ -116,6 +116,9 @@ class APIClient {
   // Main request method with optimizations
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
+    const controller = new AbortController();
+    const timeoutMs = options.timeout ?? 15000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     const mergedOptions = {
       ...this.defaultOptions,
       ...options,
@@ -123,6 +126,7 @@ class APIClient {
         ...this.defaultOptions.headers,
         ...options.headers,
       },
+      signal: controller.signal,
     };
 
     // Apply request interceptors
@@ -163,9 +167,19 @@ class APIClient {
       return response;
     };
 
-    const response = await this.deduplicateRequest(cacheKey, () => 
-      this.retry(makeRequest)
-    );
+    let response;
+    try {
+      response = await this.deduplicateRequest(cacheKey, () => this.retry(makeRequest));
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        const timeoutError = new Error('Request timed out');
+        timeoutError.status = 408;
+        throw timeoutError;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
     const processedResponse = await this.applyResponseInterceptors(response);
     
     // Parse response
