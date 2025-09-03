@@ -175,9 +175,9 @@ const logger = winston.createLogger({
       maxsize: 5242880, // 5MB
       maxFiles: 5,
     }),
-    new winston.transports.Console({
+    ...(process.env.NODE_ENV !== 'production' ? [new winston.transports.Console({
       format: winston.format.simple()
-    })
+    })] : [])
   ],
 });
 
@@ -191,9 +191,9 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'"],
       fontSrc: ["'self'", "https:"],
-      objectSrc: ["'none"],
+      objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
-      frameSrc: ["'none"],
+      frameSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"],
       upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
@@ -244,17 +244,17 @@ app.use((req, res, next) => {
 // Optimized compression with better settings
 app.use(compression({
   filter: (req, res) => {
-    // Don't compress small responses or already compressed content
-    if (req.headers['x-no-compression'] || 
-        req.headers['content-encoding'] ||
-        req.headers['content-length'] < 1024) {
-      return false;
-    }
+    if (req.headers['x-no-compression']) return false;
+    // Skip Server-Sent Events and if downstream proxies mark no-transform
+    const accept = req.headers['accept'] || '';
+    if (accept.includes('text/event-stream')) return false;
+    const cacheControl = res.getHeader && res.getHeader('Cache-Control');
+    if (typeof cacheControl === 'string' && cacheControl.includes('no-transform')) return false;
     return compression.filter(req, res);
   },
-  threshold: 1024, // Only compress responses larger than 1KB
-  level: 6, // Balanced compression level
-  memLevel: 8, // Memory usage for compression
+  threshold: 1024,
+  level: 6,
+  memLevel: 8,
 }));
 
 // Metrics endpoint
@@ -289,8 +289,10 @@ const limiter = rateLimit({
   skipFailedRequests: false,
   // Enhanced security for production
   keyGenerator: (req) => {
-    // Use IP + user agent for better rate limiting
-    return req.ip + ':' + (req.headers['user-agent'] || 'unknown');
+    const tenant = req.tenantId || 'default';
+    const userId = req.user?.id || 'anonymous';
+    const ua = req.headers['user-agent'] || 'unknown';
+    return `${tenant}:${userId}:${req.ip}:${ua}`;
   },
   handler: (req, res) => {
     logger.warn(`Rate limit exceeded for IP: ${req.ip}`);
@@ -309,7 +311,11 @@ const authLimiter = rateLimit({
   message: 'Too many login attempts, please try again later.',
   skipSuccessfulRequests: true,
   skipFailedRequests: false,
-  keyGenerator: (req) => req.ip,
+  keyGenerator: (req) => {
+    const tenant = req.tenantId || 'default';
+    const identifier = (req.body?.email) || `${req.body?.bsnr || ''}-${req.body?.lanr || ''}` || 'anonymous';
+    return `${tenant}:${req.ip}:${identifier}`;
+  },
   handler: (req, res) => {
     logger.warn(`Auth rate limit exceeded for IP: ${req.ip}`);
     res.status(429).json({
@@ -327,7 +333,11 @@ const downloadLimiter = rateLimit({
   message: 'Too many download requests, please try again later.',
   skipSuccessfulRequests: true,
   skipFailedRequests: false,
-  keyGenerator: (req) => req.ip,
+  keyGenerator: (req) => {
+    const tenant = req.tenantId || 'default';
+    const userId = req.user?.id || 'anonymous';
+    return `${tenant}:${userId}:${req.ip}`;
+  },
   handler: (req, res) => {
     logger.warn(`Download rate limit exceeded for IP: ${req.ip}`);
     res.status(429).json({
@@ -345,7 +355,11 @@ const adminLimiter = rateLimit({
   message: 'Too many admin requests, please try again later.',
   skipSuccessfulRequests: false,
   skipFailedRequests: false,
-  keyGenerator: (req) => req.ip,
+  keyGenerator: (req) => {
+    const tenant = req.tenantId || 'default';
+    const userId = req.user?.id || 'anonymous';
+    return `${tenant}:${userId}:${req.ip}`;
+  },
   handler: (req, res) => {
     logger.warn(`Admin rate limit exceeded for IP: ${req.ip}`);
     res.status(429).json({
@@ -398,7 +412,7 @@ const corsOptions = {
   credentials: true,
   optionsSuccessStatus: 200,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Tenant-Id'],
   maxAge: 86400, // Cache preflight requests for 24 hours
 };
 app.use(cors(corsOptions));
@@ -481,8 +495,24 @@ app.use((req, res, next) => {
   res.send = function(data) {
     try {
       const duration = Date.now() - start;
-      const bodyBuffer = Buffer.isBuffer(data) ? data : Buffer.from(typeof data === 'string' ? data : JSON.stringify(data || ''));
-      const size = bodyBuffer.length;
+      let size = 0;
+      if (Buffer.isBuffer(data)) {
+        size = data.length;
+      } else if (typeof data === 'string') {
+        size = Buffer.byteLength(data, 'utf8');
+      } else {
+        // Avoid heavy stringify for large objects; approximate size using header if available
+        const contentLengthHeader = res.getHeader('Content-Length');
+        if (contentLengthHeader) {
+          size = Number(contentLengthHeader) || 0;
+        } else {
+          try {
+            size = Buffer.byteLength(JSON.stringify(data || ''), 'utf8');
+          } catch (_) {
+            size = 0;
+          }
+        }
+      }
       
       logger.info(`${req.method} ${req.originalUrl} - ${res.statusCode} - ${duration}ms - ${size}bytes - User: ${req.user?.email || 'anonymous'}`);
       
@@ -515,7 +545,7 @@ const cacheMiddleware = (duration = 300) => (req, res, next) => {
   }
   
   try {
-    const key = `${req.originalUrl}-${req.user?.userId || 'anonymous'}`;
+    const key = `${req.originalUrl}-${req.user?.id || 'anonymous'}`;
     const cached = cache.get(key);
     
     if (cached) {
@@ -968,8 +998,10 @@ const mockDatabase = {
         
       case USER_ROLES.PATIENT:
         // Patients can only see their own results (would need patient ID matching)
-        return filteredResults.filter(result => 
-          result.patientEmail === user.email // This would be implemented with proper patient records
+        return filteredResults.filter(result =>
+          result.assignedTo === user.email ||
+          (Array.isArray(result.assignedUsers) && result.assignedUsers.includes(user.email)) ||
+          result.patientEmail === user.email
         );
         
       default:
