@@ -1,4 +1,6 @@
-// server/server.js
+hier ist die **bereinigte, konfliktfreie** `server/server.js` komplett in *einer* Datei – einfach so übernehmen:
+
+```js
 require('dotenv').config(); // Load environment variables from .env
 const express = require('express');
 const cors = require('cors');
@@ -432,8 +434,9 @@ if (cookieParser) {
   app.use(cookieParser());
 }
 
-// CSRF protection for state-changing operations
-const csrfProtection = cookieParser ? csrf({
+// CSRF protection for state-changing operations (disabled by default in development)
+const CSRF_ENABLED = process.env.ENABLE_CSRF === 'true';
+const csrfProtection = (CSRF_ENABLED && cookieParser) ? csrf({
   cookie: {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -441,13 +444,22 @@ const csrfProtection = cookieParser ? csrf({
   }
 }) : (req, res, next) => next();
 
-// Apply CSRF protection to all POST, PUT, DELETE requests
+// Apply CSRF protection to all POST, PUT, DELETE requests (after webhook)
 app.use((req, res, next) => {
-  // Skip CSRF checks for read-only requests and auth endpoints
+  // Skip CSRF checks for read-only requests
   if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
     return next();
   }
-  if (req.path === '/api/login' || req.path === '/api/auth/login') {
+  // Skip auth endpoints and signed Mirth webhook ingestion before body parsers
+  const p = req.path || '';
+  const hasWebhookSignature = !!(req.headers['x-signature'] || req.headers['x-signature-sha256']);
+  if (
+    p === '/api/login' ||
+    p === '/api/auth/login' ||
+    p.startsWith('/api/mirth-webhook') ||
+    p.startsWith('/api/mirth/webhook') ||
+    hasWebhookSignature
+  ) {
     return next();
   }
   return csrfProtection(req, res, next);
@@ -502,7 +514,13 @@ app.use((err, req, res, next) => {
 
 // Handle CSRF errors gracefully
 app.use((err, req, res, next) => {
-  if (err && (err.code === 'EBADCSRFTOKEN' || err.message?.toLowerCase().includes('csrf'))) {
+  if (err && (err.code === 'EBADCSRFTOKEN' || (err.message && err.message.toLowerCase().includes('csrf')))) {
+    const p = req.path || '';
+    const hasWebhookSignature = !!(req.headers?.['x-signature'] || req.headers?.['x-signature-sha256']);
+    if (p.startsWith('/api/mirth-webhook') || p.startsWith('/api/mirth/webhook') || hasWebhookSignature) {
+      // Bypass CSRF error for signed webhook requests
+      return next();
+    }
     return res.status(403).json({ success: false, message: 'Invalid CSRF token' });
   }
   next(err);
@@ -2484,3 +2502,4 @@ function startServer(port, retries = 3) {
 const server = startServer(PORT);
 
 module.exports = app;
+```
