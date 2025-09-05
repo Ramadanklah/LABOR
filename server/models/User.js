@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const speakeasy = require('speakeasy');
+const crypto = require('crypto');
 
 // User roles with hierarchical permissions
 const USER_ROLES = {
@@ -84,7 +85,7 @@ class UserModel {
         if (process.env.NODE_ENV !== 'production' || process.env.LOG_ADMIN_CREATION === 'true') {
           console.log('✅ Initial admin user created for production');
           console.log(`   Email: ${adminUser.email}`);
-          console.log(`   Password: admin123 (CHANGE IMMEDIATELY!)`);
+          console.log(`   Password: ${process.env.ADMIN_DEFAULT_PASSWORD || 'Generated password - check logs'}`);
           console.log('   ⚠️  IMPORTANT: Change the default password immediately!');
         }
       } catch (error) {
@@ -107,7 +108,7 @@ class UserModel {
         // Create default admin user
         const adminUser = await this.createUser({
           email: 'admin@laborresults.de',
-          password: 'admin123',
+          password: process.env.ADMIN_DEFAULT_PASSWORD || 'admin123',
           firstName: 'System',
           lastName: 'Administrator',
           role: USER_ROLES.ADMIN,
@@ -119,7 +120,7 @@ class UserModel {
         // Create default doctor user
         const doctorUser = await this.createUser({
           email: 'doctor@laborresults.de',
-          password: 'doctor123',
+          password: process.env.DOCTOR_DEFAULT_PASSWORD || 'doctor123',
           firstName: 'Dr. Maria',
           lastName: 'Schmidt',
           role: USER_ROLES.DOCTOR,
@@ -132,7 +133,7 @@ class UserModel {
         // Create default lab technician
         const labUser = await this.createUser({
           email: 'lab@laborresults.de',
-          password: 'lab123',
+          password: process.env.LAB_DEFAULT_PASSWORD || 'lab123',
           firstName: 'Hans',
           lastName: 'Mueller',
           role: USER_ROLES.LAB_TECHNICIAN,

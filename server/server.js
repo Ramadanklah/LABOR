@@ -1,6 +1,3 @@
-hier ist die **bereinigte, konfliktfreie** `server/server.js` komplett in *einer* Datei – einfach so übernehmen:
-
-```js
 require('dotenv').config(); // Load environment variables from .env
 const express = require('express');
 const cors = require('cors');
@@ -2466,9 +2463,9 @@ function startServer(port, retries = 3) {
       logger.info(`Server running on http://localhost:${port}`);
       logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
       logger.info('User management system initialized with default users:');
-      logger.info('  Admin: admin@laborresults.de / admin123');
-      logger.info('  Doctor: doctor@laborresults.de / doctor123');
-      logger.info('  Lab Tech: lab@laborresults.de / lab123');
+      logger.info('  Admin: admin@laborresults.de / [Password from ADMIN_DEFAULT_PASSWORD env var]');
+      logger.info('  Doctor: doctor@laborresults.de / [Password from DOCTOR_DEFAULT_PASSWORD env var]');
+      logger.info('  Lab Tech: lab@laborresults.de / [Password from LAB_DEFAULT_PASSWORD env var]');
     });
 
     // Handle server errors
