@@ -1,4 +1,6 @@
-// server/server.js
+hier ist die **bereinigte, konfliktfreie** `server/server.js` komplett in *einer* Datei – einfach so übernehmen:
+
+```js
 require('dotenv').config(); // Load environment variables from .env
 const express = require('express');
 const cors = require('cors');
@@ -19,6 +21,7 @@ const winston = require('winston');
 const path = require('path');
 const LDTGenerator = require('./utils/ldtGenerator');
 const PDFGenerator = require('./utils/pdfGenerator');
+const { sendLDTToMirth } = require('./utils/mirthClient');
 const { UserModel, USER_ROLES, ROLE_PERMISSIONS } = require('./models/User');
 const bodyParser = require('body-parser');
 const parseLDT = require('./utils/ldtParser');
@@ -441,18 +444,22 @@ const csrfProtection = (CSRF_ENABLED && cookieParser) ? csrf({
   }
 }) : (req, res, next) => next();
 
-// Webhook route is defined later in the file after helper initialization
-
 // Apply CSRF protection to all POST, PUT, DELETE requests (after webhook)
 app.use((req, res, next) => {
   // Skip CSRF checks for read-only requests
   if (!['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
     return next();
   }
-  // Skip auth endpoints and Mirth webhook ingestion (raw body) before body parsers
+  // Skip auth endpoints and signed Mirth webhook ingestion before body parsers
   const p = req.path || '';
   const hasWebhookSignature = !!(req.headers['x-signature'] || req.headers['x-signature-sha256']);
-  if (p === '/api/login' || p === '/api/auth/login' || p.startsWith('/api/mirth-webhook') || p.startsWith('/api/mirth/webhook') || hasWebhookSignature) {
+  if (
+    p === '/api/login' ||
+    p === '/api/auth/login' ||
+    p.startsWith('/api/mirth-webhook') ||
+    p.startsWith('/api/mirth/webhook') ||
+    hasWebhookSignature
+  ) {
     return next();
   }
   return csrfProtection(req, res, next);
@@ -507,7 +514,7 @@ app.use((err, req, res, next) => {
 
 // Handle CSRF errors gracefully
 app.use((err, req, res, next) => {
-  if (err && (err.code === 'EBADCSRFTOKEN' || err.message?.toLowerCase().includes('csrf'))) {
+  if (err && (err.code === 'EBADCSRFTOKEN' || (err.message && err.message.toLowerCase().includes('csrf')))) {
     const p = req.path || '';
     const hasWebhookSignature = !!(req.headers?.['x-signature'] || req.headers?.['x-signature-sha256']);
     if (p.startsWith('/api/mirth-webhook') || p.startsWith('/api/mirth/webhook') || hasWebhookSignature) {
@@ -878,12 +885,25 @@ const mockDatabase = {
   // Raw inbound LDT messages received from external systems
   ldtMessages: [],
 
+  // Outbound delivery tracking
+  deliveries: [],
+
   /**
    * Persist a newly received LDT message in memory.
    * @param {object} messageObj { id, receivedAt, raw, parsed }
    */
   addLDTMessage(messageObj) {
     this.ldtMessages.push(messageObj);
+  },
+
+  addDelivery(delivery) {
+    this.deliveries.push({
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      status: 'queued',
+      attempts: 0,
+      ...delivery,
+    });
   },
 
   /**
@@ -1831,6 +1851,64 @@ app.get('/api/results/:resultId', authenticateToken, asyncHandler(async (req, re
 
 // === ADMIN ENDPOINTS ===
 
+// Publish a specific result to Mirth (Admin or Lab Technician)
+app.post('/api/results/:resultId/publish', authenticateToken, asyncHandler(async (req, res) => {
+  const { resultId } = req.params;
+
+  if (!(req.user.role === USER_ROLES.ADMIN || req.user.role === USER_ROLES.LAB_TECHNICIAN)) {
+    return res.status(403).json({ success: false, message: 'Insufficient permissions' });
+  }
+
+  const result = mockDatabase.results.find(r => r.id === resultId);
+  if (!result) {
+    return res.status(404).json({ success: false, message: 'Result not found' });
+  }
+
+  try {
+    const ldtGenerator = new LDTGenerator();
+    const ldtContent = ldtGenerator.generateLDT([result], {
+      labInfo: {
+        name: process.env.LAB_NAME || 'Labor Results System',
+        street: process.env.LAB_STREET || 'Medical Center Street 1',
+        zipCode: process.env.LAB_ZIP || '12345',
+        city: process.env.LAB_CITY || 'Medical City',
+        phone: process.env.LAB_PHONE || '+49-123-456789',
+        email: process.env.LAB_EMAIL || 'info@laborresults.de'
+      },
+      provider: { bsnr: result.bsnr, lanr: result.lanr }
+    });
+
+    mockDatabase.addDelivery({
+      resultId,
+      userEmail: req.user.email,
+      bodyHash: crypto.createHash('sha256').update(ldtContent).digest('hex'),
+      endpoint: process.env.MIRTH_OUTBOUND_URL || null,
+    });
+
+    const resp = await sendLDTToMirth(ldtContent);
+
+    // Update tracking (simple append)
+    mockDatabase.addDelivery({
+      resultId,
+      userEmail: req.user.email,
+      status: 'delivered',
+      responseStatus: resp.status,
+    });
+
+    logger.info('Published result to Mirth', { resultId, status: resp.status });
+    return res.json({ success: true, message: 'Delivered to Mirth', status: resp.status });
+  } catch (error) {
+    mockDatabase.addDelivery({
+      resultId,
+      userEmail: req.user.email,
+      status: 'failed',
+      error: error.message,
+    });
+    logger.error('Failed to publish result to Mirth', { resultId, error: error.message });
+    return res.status(502).json({ success: false, message: 'Delivery failed', error: error.message });
+  }
+}));
+
 // Get unassigned results (Admin only)
 app.get('/api/admin/unassigned-results', authenticateToken, requireAdmin, asyncHandler(async (req, res) => {
   const unassignedResults = mockDatabase.getUnassignedResults(req.user);
@@ -2023,6 +2101,306 @@ async function persistRawMessage(rawBuffer) {
   }
 }
 
+// Mirth Connect ingestion endpoint to accept LDT payloads (secured)
+app.post(
+  '/api/mirth-webhook',
+  webhookLimiter,
+  express.raw({ type: '*/*', limit: '10mb' }),
+  validateWebhookSignature,
+  asyncHandler(async (req, res) => {
+    if (!validateContentType(req, res)) return;
+
+    const rawBody = req.rawBody || req.body;
+
+    // Defensive type check: ensure rawBody is a Buffer
+    if (!(rawBody instanceof Buffer)) {
+      logger.warn('Invalid rawBody type in /api/mirth-webhook', { type: typeof rawBody });
+      return res.status(400).json({ success: false, message: 'Invalid request body type' });
+    }
+
+    logger.info('Received payload from Mirth Connect (secured)', {
+      contentType: req.headers['content-type'],
+      size: rawBody ? rawBody.length : 0,
+      bodyHash: req.webhookBodyHash
+    });
+
+    // Persist raw (non-blocking)
+    const storedPath = await persistRawMessage(rawBody);
+
+    // Parse the LDT payload
+    let ldtPayload;
+    const asString = rawBody.toString('utf8');
+
+    if (req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
+      try {
+        const jsonBody = JSON.parse(asString);
+        ldtPayload = jsonBody.data || jsonBody.payload || jsonBody.content || jsonBody.message || jsonBody.ldt || asString;
+        if (ldtPayload !== asString) {
+          ldtPayload = String(ldtPayload).replace(/\\n/g, '\n');
+        }
+      } catch (error) {
+        ldtPayload = asString;
+      }
+    } else {
+      ldtPayload = asString;
+    }
+
+    if (!ldtPayload || typeof ldtPayload !== 'string' || ldtPayload.trim().length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid LDT payload detected' });
+    }
+
+    const parsedRecords = parseLDT(ldtPayload);
+    if (parsedRecords.length === 0) {
+      return res.status(422).json({ success: false, message: 'Unable to parse any LDT records' });
+    }
+
+    const messageId = crypto.randomUUID();
+    mockDatabase.addLDTMessage({ id: messageId, receivedAt: new Date().toISOString(), raw: ldtPayload, parsed: parsedRecords });
+
+    const ldtData = mockDatabase.extractLDTIdentifiers(parsedRecords);
+    const newResult = mockDatabase.createResultFromLDT(ldtData, messageId);
+    mockDatabase.results.push(newResult);
+
+    logger.info(`Processed LDT message ${messageId}:`, {
+      recordCount: parsedRecords.length,
+      bsnr: ldtData.bsnr,
+      lanr: ldtData.lanr,
+      patient: newResult.patient,
+      assignedTo: newResult.assignedTo,
+      resultId: newResult.id,
+      bodyHash: req.webhookBodyHash,
+      storedPath
+    });
+
+    res.status(202).json({
+      success: true,
+      messageId,
+      replayKey: req.webhookReplayKey,
+      bodyHash: req.webhookBodyHash,
+      resultId: newResult.id,
+      message: newResult.assignedTo 
+        ? `Result assigned to ${newResult.assignedTo}` 
+        : 'Result created but not assigned (admin review required)'
+    });
+  })
+);
+
+// Alternative route (kept but secured similarly)
+app.post(
+  '/api/mirth/webhook',
+  webhookLimiter,
+  express.raw({ type: '*/*', limit: '10mb' }),
+  validateWebhookSignature,
+  asyncHandler(async (req, res) => {
+    if (!validateContentType(req, res)) return;
+
+    const rawBody = req.rawBody || req.body;
+    const asString = rawBody.toString('utf8');
+
+    let ldtPayload;
+    if (req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
+      try {
+        const jsonBody = JSON.parse(asString);
+        ldtPayload = jsonBody.data || jsonBody.payload || jsonBody.content || jsonBody.message || jsonBody.ldt || asString;
+        if (ldtPayload !== asString) {
+          ldtPayload = ldtPayload.replace(/\\n/g, '\n');
+        }
+      } catch (error) {
+        ldtPayload = asString;
+      }
+    } else {
+      ldtPayload = asString;
+    }
+
+    if (!ldtPayload || typeof ldtPayload !== 'string' || ldtPayload.trim().length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid LDT payload detected' });
+    }
+
+    const parsedRecords = parseLDT(ldtPayload);
+    if (parsedRecords.length === 0) {
+      return res.status(422).json({ success: false, message: 'Unable to parse any LDT records' });
+    }
+
+    const messageId = crypto.randomUUID();
+    mockDatabase.addLDTMessage({ id: messageId, receivedAt: new Date().toISOString(), raw: ldtPayload, parsed: parsedRecords });
+    const ldtData = mockDatabase.extractLDTIdentifiers(parsedRecords);
+    const newResult = mockDatabase.createResultFromLDT(ldtData, messageId);
+    mockDatabase.results.push(newResult);
+
+    logger.info(`Processed LDT message ${messageId} (alternative route)`, { resultId: newResult.id, bodyHash: req.webhookBodyHash });
+
+    res.status(202).json({ success: true, messageId, resultId: newResult.id });
+  })
+);
+
+// Enhanced download endpoints with access control
+// Download all results as LDT
+app.get('/api/download/ldt', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
+  try {
+    const results = mockDatabase.getResultsForUser(req.user);
+    const filename = `lab_results_${new Date().toISOString().slice(0, 10)}.ldt`;
+
+    const ldtGenerator = new LDTGenerator();
+    const ldtContent = ldtGenerator.generateLDT(results, {
+      labInfo: {
+        name: process.env.LAB_NAME || 'Labor Results System',
+        street: process.env.LAB_STREET || 'Medical Center Street 1',
+        zipCode: process.env.LAB_ZIP || '12345',
+        city: process.env.LAB_CITY || 'Medical City',
+        phone: process.env.LAB_PHONE || '+49-123-456789',
+        email: process.env.LAB_EMAIL || 'info@laborresults.de'
+      },
+      provider: { bsnr: req.user.bsnr, lanr: req.user.lanr }
+    });
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', Buffer.byteLength(ldtContent, 'utf8'));
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    
+    res.send(ldtContent);
+    logger.info(`LDT file downloaded: ${filename} by ${req.user.email}`);
+    
+  } catch (error) {
+    logger.error('Error generating LDT file:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to generate LDT file',
+      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
+    });
+  }
+}));
+
+// Download specific result as LDT
+app.get('/api/download/ldt/:resultId', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
+  const { resultId } = req.params;
+  
+  const anyResult = mockDatabase.results.find(r => r.id === resultId);
+  if (!anyResult) {
+    return res.status(404).json({ success: false, message: 'Result not found' });
+  }
+  const accessible = mockDatabase.getResultsForUser(req.user).some(r => r.id === resultId);
+  if (!accessible) {
+    return res.status(403).json({ success: false, message: 'Access to result denied' });
+  }
+
+  try {
+    const results = [anyResult];
+    const filename = `result_${resultId}_${new Date().toISOString().slice(0, 10)}.ldt`;
+
+    const ldtGenerator = new LDTGenerator();
+    const ldtContent = ldtGenerator.generateLDT(results, {
+      labInfo: {
+        name: process.env.LAB_NAME || 'Labor Results System',
+        street: process.env.LAB_STREET || 'Medical Center Street 1',
+        zipCode: process.env.LAB_ZIP || '12345',
+        city: process.env.LAB_CITY || 'Medical City',
+        phone: process.env.LAB_PHONE || '+49-123-456789',
+        email: process.env.LAB_EMAIL || 'info@laborresults.de'
+      },
+      provider: { bsnr: anyResult.bsnr, lanr: anyResult.lanr }
+    });
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', Buffer.byteLength(ldtContent, 'utf8'));
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    
+    res.send(ldtContent);
+    logger.info(`LDT file downloaded: ${filename} by ${req.user.email}`);
+    
+  } catch (error) {
+    logger.error('Error generating LDT file:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to generate LDT file',
+      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
+    });
+  }
+}));
+
+// Download all results as PDF
+app.get('/api/download/pdf', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
+  try {
+    const results = mockDatabase.getResultsForUser(req.user);
+    const filename = `lab_results_${new Date().toISOString().slice(0, 10)}.pdf`;
+
+    const pdfGenerator = new PDFGenerator();
+    const pdfBuffer = await pdfGenerator.generatePDF(results, {
+      labInfo: {
+        name: process.env.LAB_NAME || 'Labor Results System',
+        street: process.env.LAB_STREET || 'Medical Center Street 1',
+        zipCode: process.env.LAB_ZIP || '12345',
+        city: process.env.LAB_CITY || 'Medical City',
+        phone: process.env.LAB_PHONE || '+49-123-456789',
+        email: process.env.LAB_EMAIL || 'info@laborresults.de'
+      }
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    
+    res.send(pdfBuffer);
+    logger.info(`PDF file downloaded: ${filename} by ${req.user.email}`);
+    
+  } catch (error) {
+    logger.error('Error generating PDF file:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to generate PDF file',
+      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
+    });
+  }
+}));
+
+// Download specific result as PDF
+app.get('/api/download/pdf/:resultId', authenticateToken, requirePermission('canDownloadReports'), asyncHandler(async (req, res) => {
+  const { resultId } = req.params;
+  
+  const anyResult = mockDatabase.results.find(r => r.id === resultId);
+  if (!anyResult) {
+    return res.status(404).json({ success: false, message: 'Result not found' });
+  }
+  const accessible = mockDatabase.getResultsForUser(req.user).some(r => r.id === resultId);
+  if (!accessible) {
+    return res.status(403).json({ success: false, message: 'Access to result denied' });
+  }
+
+  try {
+    const results = [anyResult];
+    const filename = `result_${resultId}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    const pdfGenerator = new PDFGenerator();
+    const pdfBuffer = await pdfGenerator.generatePDF(results, {
+      labInfo: {
+        name: process.env.LAB_NAME || 'Labor Results System',
+        street: process.env.LAB_STREET || 'Medical Center Street 1',
+        zipCode: process.env.LAB_ZIP || '12345',
+        city: process.env.LAB_CITY || 'Medical City',
+        phone: process.env.LAB_PHONE || '+49-123-456789',
+        email: process.env.LAB_EMAIL || 'info@laborresults.de'
+      }
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    
+    res.send(pdfBuffer);
+    logger.info(`PDF file downloaded: ${filename} by ${req.user.email}`);
+    
+  } catch (error) {
+    logger.error('Error generating PDF file:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Failed to generate PDF file',
+      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message 
+    });
+  }
+}));
+
 // Global error handler
 app.use((error, req, res, next) => {
   logger.error('Unhandled error:', error);
@@ -2124,3 +2502,4 @@ function startServer(port, retries = 3) {
 const server = startServer(PORT);
 
 module.exports = app;
+```

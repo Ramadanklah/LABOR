@@ -318,3 +318,30 @@ const labResults = getResultsForUser(labUser);
 console.log(`     Can see ${labResults.length} results`);
 
 console.log('\n✅ LDT Matching and User Assignment Test Complete!');
+
+// Additional check: LDT generator includes BSNR and LANR
+try {
+  const LDTGenerator = require('./server/utils/ldtGenerator');
+  const gen = new LDTGenerator();
+  const content = gen.generateLDT([{
+    id: 'r1',
+    date: '2024-01-01',
+    type: 'Blood Count',
+    status: 'Final',
+    patient: 'Test User',
+    bsnr: '123456789',
+    lanr: '1234567',
+  }], { labInfo: { name: 'Test Lab' }, provider: { bsnr: '123456789', lanr: '1234567' } });
+  if (!content.includes('81000201' + '123456789') && !content.includes('81000020' + '123456789')) {
+    console.error('❌ LDT does not include BSNR field for provider');
+    process.exit(1);
+  }
+  if (!content.includes('81000202' + '1234567') && !content.includes('81000021' + '1234567')) {
+    console.error('❌ LDT does not include LANR field for provider');
+    process.exit(1);
+  }
+  console.log('✅ LDT generation includes BSNR and LANR');
+} catch (e) {
+  console.error('❌ Failed to validate LDT generator for BSNR/LANR:', e.message);
+  process.exit(1);
+}

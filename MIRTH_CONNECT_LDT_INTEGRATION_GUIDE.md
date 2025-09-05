@@ -36,21 +36,29 @@ var ldtMessage = msg.toString();
 ### **Step 2: Backend API Configuration**
 
 #### **2.1 Webhook Endpoint**
-The application already has the webhook endpoint configured:
-
-```javascript
-// server/server.js - Line 1000+
-app.post('/api/mirth-webhook', bodyParser.text({ type: '*/*', limit: '10mb' }), asyncHandler(async (req, res) => {
-  // Process incoming LDT message
-  // Extract BSNR/LANR
-  // Match to users
-  // Create results
-  // Return processing status
-});
-```
+The application has a secured webhook endpoint configured with HMAC verification and replay protection.
 
 #### **2.2 LDT Parser Configuration**
 The parser supports both formats:
+#### **2.3 Outbound Delivery to Mirth**
+Configure outbound delivery for sending LDT to a Mirth HTTP Listener:
+
+Environment variables:
+
+```bash
+MIRTH_OUTBOUND_URL=http://mirth-listener:8080/ldt
+MIRTH_OUTBOUND_SECRET=change_me
+```
+
+API endpoint to publish a single result:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer <token_of_lab_or_admin>" \
+  http://localhost:5000/api/results/<resultId>/publish
+```
+
+The server signs outbound LDT with `X-Timestamp` and `X-Signature` (HMAC-SHA256).
 - **Line-based Format**: Current standard
 - **XML Format**: Legacy format (backward compatibility)
 
@@ -71,9 +79,15 @@ The system processes LDT messages with the following structure:
 ```
 
 #### **3.2 Identifier Extraction**
-The system extracts:
-- **BSNR (Betriebsstättennummer)**: 8-digit facility number
+The system extracts and emits in generated LDT:
+- **BSNR (Betriebsstättennummer)**: 9-digit facility number
 - **LANR (Länderarztnummer)**: 7-digit doctor number
+BSNR/LANR are added to 8100 records when generating LDT:
+
+```
+8100 0201 -> BSNR (also mirrored as 0020)
+8100 0202 -> LANR (also mirrored as 0021)
+```
 - **Patient Information**: Name, ID, birth date
 - **Lab Information**: Lab name, address
 - **Test Results**: Test parameters and values

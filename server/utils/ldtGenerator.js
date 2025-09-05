@@ -49,6 +49,24 @@ class LDTGenerator {
     this.addRecord('8100', '0249', labInfo.email || 'info@laborresults.de');
   }
 
+  // Generate provider identifiers (BSNR and LANR) per requirement
+  // Uses record type 8100 with field IDs scanned by our extractor
+  generateProviderIdentifiers(provider = {}) {
+    const { bsnr, lanr } = provider;
+    if (bsnr) {
+      // Primary BSNR field
+      this.addRecord('8100', '0201', String(bsnr));
+      // Alternate BSNR field used by extractor as fallback
+      this.addRecord('8100', '0020', String(bsnr));
+    }
+    if (lanr) {
+      // Primary LANR field
+      this.addRecord('8100', '0202', String(lanr));
+      // Alternate LANR field used by extractor as fallback
+      this.addRecord('8100', '0021', String(lanr));
+    }
+  }
+
   // Generate patient data record
   generatePatientData(patient) {
     this.addRecord('8200', '3101', patient.lastName || 'Unknown');
@@ -126,6 +144,14 @@ class LDTGenerator {
       // Lab information
       this.generateLabInfo(options.labInfo);
 
+      // Include provider identifiers (BSNR/LANR) once per message
+      // Prefer explicitly provided values; otherwise derive from first result
+      const firstResultGlobal = results[0] || {};
+      this.generateProviderIdentifiers({
+        bsnr: options.provider?.bsnr ?? firstResultGlobal.bsnr,
+        lanr: options.provider?.lanr ?? firstResultGlobal.lanr
+      });
+
       // Group results by patient
       const patientGroups = this.groupResultsByPatient(results);
 
@@ -150,8 +176,8 @@ class LDTGenerator {
           const request = {
             requestId: firstResult.id,
             requestDate: new Date(firstResult.date).toISOString().slice(0, 10).replace(/-/g, ''),
-            doctorId: firstResult.bsnr,
-            doctorName: `Practice ${firstResult.bsnr}`
+            doctorId: firstResult.lanr || firstResult.bsnr || 'DR001',
+            doctorName: `Practice ${firstResult.bsnr || 'UNKNOWN'}`
           };
           this.generateRequestData(request);
 
